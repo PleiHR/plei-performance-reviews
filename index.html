@@ -124,7 +124,7 @@
 
 <script>
 /* ============================= DATA LAYER ============================= */
-const DB_KEY = 'plei_perf_reviews_db_v5';
+const DB_KEY = 'plei_perf_reviews_db_v6';
 const SESSION_KEY = 'plei_perf_reviews_session_v1';
 
 // To enable real "Sign in with Google": create an OAuth 2.0 Web Client ID in Google Cloud
@@ -207,7 +207,7 @@ function seedDB(){
     {id:'lucas', name:'Lucas Arena', email:'lucas@plei.com', role:'employee', department:'Frontend', title:'Frontend Engineer', managerId:'adrian'},
     {id:'adrian', name:'Adrian Rodriguez Gonzalez', email:'adrian@plei.com', role:'manager', department:'Frontend', title:'Frontend Engineering Lead', managerId:'brayan'},
     {id:'thomas', name:'Thomas Arango', email:'thomas@plei.com', role:'employee', department:'Ecommerce', title:'Junior Project Manager', managerId:'alan'},
-    {id:'elizabeth', name:'Liz Irizarry', email:'elizabeth@plei.com', role:'manager', department:'Operations', title:'Director of Operations', managerId:'sduque'},
+    {id:'elizabeth', name:'Liz Irizarry', email:'elizabeth@plei.com', role:'hr', department:'Operations', title:'Director of Operations', managerId:'sduque'},
     {id:'fabiano', name:'Fabiano Oliveira', email:'fabiano@plei.com', role:'employee', department:'DevOps', title:'QA Engineer', managerId:'david'},
     {id:'roberto', name:'Roberto Dominguez', email:'roberto@plei.com', role:'employee', department:'DevOps', title:'QA Engineer', managerId:'david'},
     {id:'david', name:'David Caicedo', email:'david@plei.com', role:'manager', department:'DevOps', title:'DevOps Engineering Lead', managerId:'brayan'},
@@ -235,10 +235,12 @@ function seedDB(){
     {id:'agustina', name:'Agus Caruso', email:'agustina@plei.com', role:'employee', department:'Customer Support', title:'Customer Support Specialist', managerId:'elizabeth'},
     {id:'maria', name:'Maria Beltran', email:'maria@plei.com', role:'employee', department:'Customer Support', title:'Customer Support Specialist', managerId:'elizabeth'},
   ];
-  // Nobody has logged in yet — only Priscila is pre-activated so she can sign in and start sending invites.
+  // Nobody has logged in yet — only the HR admins are pre-activated so they can sign in and start sending invites.
   people.forEach(p=>{ p.invited = false; p.active = false; });
-  const pri = people.find(p=>p.id==='priscila');
-  pri.invited = true; pri.active = true; pri.invitedAt = '2026-07-17';
+  ['priscila','elizabeth'].forEach(id=>{
+    const p = people.find(x=>x.id===id);
+    p.invited = true; p.active = true; p.invitedAt = '2026-07-20';
+  });
 
   const cycles = [
     {id:'c2025mid', year:2025, type:'mid', label:'2025 · Mid-Year', startDate:'2025-06-01', endDate:'2025-06-30', status:'closed'},
