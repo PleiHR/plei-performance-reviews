@@ -5,7 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Plei · Performance Reviews</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
-<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <style>
   :root{
     --bg:#f5f6fa; --panel:#ffffff; --ink:#1c2333; --sub:#6b7280; --line:#e5e7eb;
@@ -123,18 +125,20 @@
 <div id="toast" class="toast"></div>
 
 <script>
-/* ============================= DATA LAYER ============================= */
-const DB_KEY = 'plei_perf_reviews_db_v6';
-const SESSION_KEY = 'plei_perf_reviews_session_v1';
+/* ============================= FIREBASE ============================= */
+const firebaseConfig = {
+  apiKey: "AIzaSyDOWMPkmoe5IlUrYLtvZAWq1gHNVJ48akU",
+  authDomain: "plei-performance-reviews.firebaseapp.com",
+  projectId: "plei-performance-reviews",
+  storageBucket: "plei-performance-reviews.firebasestorage.app",
+  messagingSenderId: "340913671767",
+  appId: "1:340913671767:web:10934f7da06239c68add12"
+};
+firebase.initializeApp(firebaseConfig);
+const fauth = firebase.auth();
+const fdb = firebase.firestore();
 
-// To enable real "Sign in with Google": create an OAuth 2.0 Web Client ID in Google Cloud
-// Console (APIs & Services > Credentials), add the URL where this file is hosted as an
-// authorized JavaScript origin, and paste the client ID below. Google Sign-In only works
-// when the page is served from https:// (it will not work opening the file locally), so
-// until it's hosted somewhere with a real domain, the app automatically falls back to the
-// demo email sign-in below (same domain + invite rules apply either way).
-const GOOGLE_CLIENT_ID = '340913671767-u7jmbdobludaersc48h6og1pdl03t3bs.apps.googleusercontent.com';
-
+/* ============================= DATA LAYER (Firestore) ============================= */
 const RATING_LABELS = {1:'Needs improvement',2:'Developing',3:'Meets expectations',4:'Exceeds expectations',5:'Exceptional'};
 
 const SELF_FIELDS = [
@@ -186,12 +190,13 @@ const UPWARD_FIELDS = [
 
 function uid(p){ return p + '_' + Math.random().toString(36).slice(2,9); }
 
-function seedDB(){
+// Real Plei org chart, pulled from Rippling (Reports and Dashboards) on 2026-07-17.
+// role: 'hr' = full HR admin access · 'manager' = has direct reports · 'employee' = individual contributor.
+// Used only by the one-time "Seed real org data" bootstrap action below — not for local storage.
+function seedOrgData(){
   const departments = ['Marketing','Growth','Data','HR','Partnerships','Frontend','Ecommerce','Operations','DevOps',
     'Executive Operations','Engineering','Product','Backend','Magic (IHO)','Customer Support'];
 
-  // Real Plei org chart, pulled from Rippling (Reports and Dashboards) on 2026-07-17.
-  // role: 'hr' = full HR admin access · 'manager' = has direct reports · 'employee' = individual contributor.
   const people = [
     {id:'angel', name:'Angel Montejo', email:'angel@plei.com', role:'employee', department:'Marketing', title:'BA Program Manager', managerId:'michelle'},
     {id:'carlos', name:'Carlos Sposito', email:'carlos@plei.com', role:'employee', department:'Marketing', title:'Social Media Manager', managerId:'michelle'},
@@ -249,38 +254,117 @@ function seedDB(){
   ];
 
   // No fabricated review content — real people start with a clean slate.
-  const db = {departments, people, cycles, settings:{companyDomain:'plei.com'}, reviews:{self:[], manager:[], peer:[], upward:[]}, suggestions:[]};
-  return db;
+  return {departments, people, cycles, settings:{companyDomain:'plei.com'}};
 }
 
-function loadDB(){
-  const raw = localStorage.getItem(DB_KEY);
-  if(raw){ try{ return JSON.parse(raw); }catch(e){} }
-  const db = seedDB();
-  saveDB(db);
-  return db;
+// One-time HR bootstrap action: pushes the real org chart into Firestore. Safe to run more
+// than once (writes use merge:true) — only needed the first time the database is empty.
+async function seedFirestoreFromOrgData(){
+  const data = seedOrgData();
+  const batch1 = fdb.batch();
+  data.people.forEach(p=>{
+    const {id, ...rest} = p;
+    batch1.set(fdb.collection('people').doc(id), rest, {merge:true});
+  });
+  await batch1.commit();
+  const batch2 = fdb.batch();
+  data.cycles.forEach(c=>{
+    const {id, ...rest} = c;
+    batch2.set(fdb.collection('cycles').doc(id), rest, {merge:true});
+  });
+  batch2.set(fdb.collection('settings').doc('main'), {companyDomain:data.settings.companyDomain, departments:data.departments}, {merge:true});
+  await batch2.commit();
 }
-function saveDB(db){ localStorage.setItem(DB_KEY, JSON.stringify(db)); }
 
-let DB = loadDB();
+/* In-memory mirror of Firestore, kept in sync via onSnapshot listeners below.
+   The rest of the app reads/renders from this object exactly like the old localStorage version did. */
+let DB = {departments:[], people:[], cycles:[], settings:{companyDomain:'plei.com'}, reviews:{self:[], manager:[], peer:[], upward:[]}, suggestions:[]};
+let DB_LOADED = false;
+let CURRENT_USER = null; // {uid, email}
 
-function loadSession(){
-  const raw = localStorage.getItem(SESSION_KEY);
-  if(!raw) return null;
-  try{
-    const s = JSON.parse(raw);
-    if(s && s.personId && getPerson(s.personId)) return s;
-  }catch(e){}
-  return null;
+function myLocalId(email){ return (email||'').split('@')[0]; }
+function mergeById(a, b){
+  const map = new Map();
+  a.forEach(r=>map.set(r.id, r));
+  b.forEach(r=>map.set(r.id, r));
+  return Array.from(map.values());
 }
-function saveSession(s){ if(s){ localStorage.setItem(SESSION_KEY, JSON.stringify(s)); } else { localStorage.removeItem(SESSION_KEY); } }
+
+let reviewListenerUnsubs = [];
+function stopReviewListeners(){ reviewListenerUnsubs.forEach(u=>u()); reviewListenerUnsubs = []; }
+
+function startReviewListeners(email, isHR){
+  stopReviewListeners();
+  if(isHR){
+    reviewListenerUnsubs.push(fdb.collection('reviews_self').onSnapshot(snap=>{ DB.reviews.self = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
+    reviewListenerUnsubs.push(fdb.collection('reviews_manager').onSnapshot(snap=>{ DB.reviews.manager = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
+    reviewListenerUnsubs.push(fdb.collection('reviews_peer').onSnapshot(snap=>{ DB.reviews.peer = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
+    reviewListenerUnsubs.push(fdb.collection('reviews_upward').onSnapshot(snap=>{ DB.reviews.upward = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
+  } else {
+    let selfMine = [], selfTeam = [];
+    reviewListenerUnsubs.push(fdb.collection('reviews_self').where('employeeEmail','==',email).onSnapshot(snap=>{ selfMine = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); DB.reviews.self = mergeById(selfMine, selfTeam); if(DB_LOADED) render(); }, e=>console.error(e)));
+    reviewListenerUnsubs.push(fdb.collection('reviews_self').where('managerEmail','==',email).onSnapshot(snap=>{ selfTeam = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); DB.reviews.self = mergeById(selfMine, selfTeam); if(DB_LOADED) render(); }, e=>console.error(e)));
+    let mgrMine = [], mgrTeam = [];
+    reviewListenerUnsubs.push(fdb.collection('reviews_manager').where('employeeEmail','==',email).onSnapshot(snap=>{ mgrMine = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); DB.reviews.manager = mergeById(mgrMine, mgrTeam); if(DB_LOADED) render(); }, e=>console.error(e)));
+    reviewListenerUnsubs.push(fdb.collection('reviews_manager').where('managerEmail','==',email).onSnapshot(snap=>{ mgrTeam = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); DB.reviews.manager = mergeById(mgrMine, mgrTeam); if(DB_LOADED) render(); }, e=>console.error(e)));
+    reviewListenerUnsubs.push(fdb.collection('reviews_peer').where('authorEmail','==',email).onSnapshot(snap=>{ DB.reviews.peer = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
+    reviewListenerUnsubs.push(fdb.collection('reviews_upward').where('authorEmail','==',email).onSnapshot(snap=>{ DB.reviews.upward = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
+  }
+}
+
+let peopleUnsub=null, cyclesUnsub=null, settingsUnsub=null, suggestionsUnsub=null;
+function stopBaseListeners(){
+  [peopleUnsub, cyclesUnsub, settingsUnsub, suggestionsUnsub].forEach(u=>{ if(u) u(); });
+  peopleUnsub = cyclesUnsub = settingsUnsub = suggestionsUnsub = null;
+}
+
+let lastReviewListenerMode = null;
+function onPeopleSynced(){
+  if(!CURRENT_USER) return;
+  const me = DB.people.find(p=>p.id===myLocalId(CURRENT_USER.email));
+  const isHR = !!(me && me.role==='hr');
+  const mode = isHR ? 'hr' : ('self:'+CURRENT_USER.email);
+  if(mode !== lastReviewListenerMode){
+    lastReviewListenerMode = mode;
+    startReviewListeners(CURRENT_USER.email, isHR);
+  }
+}
+
+function startBaseListeners(onFirstLoad){
+  stopBaseListeners();
+  let pending = new Set(['people','cycles','settings','suggestions']);
+  function done(key){ pending.delete(key); if(pending.size===0 && onFirstLoad){ const cb=onFirstLoad; onFirstLoad=null; cb(); } }
+  peopleUnsub = fdb.collection('people').onSnapshot(snap=>{
+    DB.people = snap.docs.map(d=>Object.assign({id:d.id}, d.data()));
+    onPeopleSynced();
+    done('people');
+    if(DB_LOADED) render();
+  }, e=>{ console.error(e); done('people'); });
+  cyclesUnsub = fdb.collection('cycles').onSnapshot(snap=>{
+    DB.cycles = snap.docs.map(d=>Object.assign({id:d.id}, d.data()));
+    done('cycles');
+    if(DB_LOADED) render();
+  }, e=>{ console.error(e); done('cycles'); });
+  settingsUnsub = fdb.collection('settings').doc('main').onSnapshot(doc=>{
+    const d = doc.data() || {};
+    DB.settings = {companyDomain: d.companyDomain || 'plei.com'};
+    DB.departments = d.departments || [];
+    done('settings');
+    if(DB_LOADED) render();
+  }, e=>{ console.error(e); done('settings'); });
+  suggestionsUnsub = fdb.collection('suggestions').onSnapshot(snap=>{
+    DB.suggestions = snap.docs.map(d=>Object.assign({id:d.id}, d.data()));
+    done('suggestions');
+    if(DB_LOADED) render();
+  }, e=>{ console.error(e); done('suggestions'); });
+}
 
 /* ============================= APP STATE ============================= */
 let STATE = {
   sessionPersonId: null,
   previewPersonId: null,
   viewAs: null,
-  activeCycleId: (DB.cycles.find(c=>c.status==='open')||DB.cycles[DB.cycles.length-1]).id,
+  activeCycleId: null,
   nav: null,
 };
 
@@ -305,105 +389,76 @@ function findReview(type, cycleId, matchFn){ return DB.reviews[type].find(r=>r.c
 function avg(arr){ if(!arr.length) return null; return arr.reduce((a,b)=>a+b,0)/arr.length; }
 function ratingAvgOfReview(r){ if(!r || !r.ratings) return null; const vals=Object.values(r.ratings); return avg(vals); }
 
-/* ============================= AUTH: LOGIN SCREEN ============================= */
-function decodeJwtPayload(token){
-  const base64Url = token.split('.')[1];
-  const base64 = base64Url.replace(/-/g,'+').replace(/_/g,'/');
-  const json = decodeURIComponent(atob(base64).split('').map(c=>'%'+('00'+c.charCodeAt(0).toString(16)).slice(-2)).join(''));
-  return JSON.parse(json);
-}
-
-function handleGoogleCredential(response){
-  try{
-    const payload = decodeJwtPayload(response.credential);
-    attemptLogin(payload.email);
-  }catch(e){ renderLogin('Something went wrong reading your Google account. Please try again.'); }
-}
-
-function attemptLogin(rawEmail){
-  const email = (rawEmail||'').trim().toLowerCase();
-  if(!email || !email.includes('@')){ renderLogin('Please enter a valid email address.'); return; }
-  const domain = email.split('@')[1];
-  const companyDomain = ((DB.settings && DB.settings.companyDomain) || '').toLowerCase();
-  if(companyDomain && domain !== companyDomain){
-    renderLogin(`Please sign in with your Plei Google account (@${DB.settings.companyDomain}).`);
-    return;
-  }
-  const person = DB.people.find(p=>p.email.toLowerCase()===email);
-  if(!person){ renderLogin("We couldn't find an account for that email. Ask HR to add you to Plei and send you an invite."); return; }
-  if(!person.invited){ renderLogin("Your account exists but hasn't been invited yet. Ask HR to send you an invite."); return; }
-  person.active = true;
-  person.lastLoginAt = new Date().toISOString();
-  saveDB(DB);
-  STATE.sessionPersonId = person.id;
-  STATE.previewPersonId = null;
-  STATE.viewAs = person.id;
-  STATE.nav = null;
-  saveSession({personId:person.id});
-  render();
+/* ============================= AUTH: LOGIN SCREEN (Firebase Auth + Google) ============================= */
+function signInWithGoogle(){
+  const provider = new firebase.auth.GoogleAuthProvider();
+  provider.setCustomParameters({hd:'plei.com'});
+  fauth.signInWithPopup(provider).catch(err=>{
+    if(err.code !== 'auth/popup-closed-by-user'){ renderLogin('Something went wrong signing in with Google. Please try again.'); }
+  });
 }
 
 function signOut(){
-  saveSession(null);
-  STATE.sessionPersonId = null;
-  STATE.previewPersonId = null;
-  renderLogin();
+  fauth.signOut();
 }
 
+let LOGIN_ERROR = null;
+
 function renderLogin(errorMsg){
+  if(errorMsg !== undefined) LOGIN_ERROR = errorMsg;
   const root = document.getElementById('root');
-  const domain = (DB.settings && DB.settings.companyDomain) || 'plei.com';
   root.innerHTML = `
   <div class="login-wrap">
     <div class="login-card">
       <h1>Plei · Performance Reviews</h1>
       <div class="sub">Sign in with your Plei Google account to continue.</div>
-      ${errorMsg?`<div class="login-error">${errorMsg}</div>`:''}
-      ${GOOGLE_CLIENT_ID ? `<div id="googleBtnHost"></div>` : `
-        <div class="login-note">Google Sign-In isn't configured yet (no OAuth Client ID / not hosted on https). Using demo email sign-in below — the same domain and invite rules still apply.</div>
-        <div class="field"><label>Your Plei email</label><input type="email" id="demoEmailInput" placeholder="you@${domain}"></div>
-        <button class="btn" id="demoLoginBtn" style="width:100%;">Continue</button>
-      `}
-      <details class="demo-list">
-        <summary>Demo accounts (click a row to sign in instantly)</summary>
-        <table>
-          <tbody>
-            ${DB.people.map(p=>`<tr data-demo-login="${p.email}"><td><b>${p.name}</b></td><td class="muted">${p.role==='hr'?'HR':p.role==='manager'?'Manager':'Employee'}</td><td class="muted">${p.email}</td></tr>`).join('')}
-          </tbody>
-        </table>
-      </details>
+      ${LOGIN_ERROR?`<div class="login-error">${LOGIN_ERROR}</div>`:''}
+      <button class="gbtn" id="googleSignInBtn">
+        <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84c-.21 1.13-.84 2.09-1.8 2.73v2.27h2.91c1.7-1.57 2.69-3.88 2.69-6.64z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.17l-2.91-2.27c-.81.54-1.84.86-3.05.86-2.35 0-4.34-1.59-5.05-3.72H.97v2.34C2.45 15.98 5.48 18 9 18z"/><path fill="#FBBC05" d="M3.95 10.7A5.4 5.4 0 013.68 9c0-.59.1-1.16.27-1.7V4.96H.97A9 9 0 000 9c0 1.45.35 2.83.97 4.04l2.98-2.34z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.51.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0 5.48 0 2.45 2.02.97 4.96l2.98 2.34C4.66 5.17 6.65 3.58 9 3.58z"/></svg>
+        Sign in with Google
+      </button>
     </div>
   </div>`;
-
-  document.getElementById('demoLoginBtn')?.addEventListener('click', ()=>attemptLogin(document.getElementById('demoEmailInput').value));
-  document.getElementById('demoEmailInput')?.addEventListener('keydown', e=>{ if(e.key==='Enter') attemptLogin(e.target.value); });
-  document.querySelectorAll('[data-demo-login]').forEach(el=>el.addEventListener('click', ()=>attemptLogin(el.dataset.demoLogin)));
-
-  if(GOOGLE_CLIENT_ID){ tryRenderGoogleButton(0); }
-}
-
-// The Google Identity Services script loads asynchronously, so it may not be ready yet
-// the first time renderLogin() runs. Poll briefly (up to ~5s) until it's available.
-function tryRenderGoogleButton(attempts){
-  const host = document.getElementById('googleBtnHost');
-  if(!host) return; // user navigated away from the login screen already
-  if(typeof google !== 'undefined' && google.accounts && google.accounts.id){
-    try{
-      google.accounts.id.initialize({client_id: GOOGLE_CLIENT_ID, callback: handleGoogleCredential});
-      google.accounts.id.renderButton(host, {theme:'outline', size:'large', width:320});
-    }catch(e){}
-    return;
-  }
-  if(attempts < 50){ setTimeout(()=>tryRenderGoogleButton(attempts+1), 100); }
+  document.getElementById('googleSignInBtn').addEventListener('click', signInWithGoogle);
 }
 
 function initApp(){
-  const session = loadSession();
-  if(!session){ renderLogin(); return; }
-  STATE.sessionPersonId = session.personId;
-  STATE.previewPersonId = null;
-  STATE.viewAs = STATE.sessionPersonId;
-  render();
+  fauth.onAuthStateChanged(user=>{
+    if(!user){
+      CURRENT_USER = null;
+      DB_LOADED = false;
+      stopBaseListeners();
+      stopReviewListeners();
+      lastReviewListenerMode = null;
+      STATE.sessionPersonId = null;
+      STATE.previewPersonId = null;
+      renderLogin();
+      return;
+    }
+    const email = (user.email||'').toLowerCase();
+    const domain = email.split('@')[1];
+    if(domain !== 'plei.com'){
+      renderLogin('Please sign in with your Plei Google account (@plei.com).');
+      fauth.signOut();
+      return;
+    }
+    LOGIN_ERROR = null;
+    CURRENT_USER = {uid:user.uid, email};
+    startBaseListeners(()=>{
+      const person = DB.people.find(p=>p.email.toLowerCase()===email);
+      if(!person){ renderLogin("We couldn't find an account for that email. Ask HR to add you to Plei and send you an invite."); fauth.signOut(); return; }
+      if(!person.invited){ renderLogin("Your account exists but hasn't been invited yet. Ask HR to send you an invite."); fauth.signOut(); return; }
+      if(!person.active){
+        fdb.collection('people').doc(person.id).update({active:true, lastLoginAt:new Date().toISOString()}).catch(e=>console.error(e));
+      }
+      STATE.sessionPersonId = person.id;
+      STATE.previewPersonId = null;
+      STATE.viewAs = person.id;
+      STATE.nav = null;
+      DB_LOADED = true;
+      render();
+    });
+  });
 }
 
 /* ============================= RENDER ROOT ============================= */
@@ -414,6 +469,25 @@ function render(){
   const sp = sessionPerson();
   const role = person.role;
   const root = document.getElementById('root');
+
+  // Firestore is provisioned but hasn't been seeded with the real org chart / cycles yet.
+  if(!DB.cycles.length){
+    root.innerHTML = `<div class="login-wrap"><div class="login-card" style="width:480px;">
+      <h1>Plei · Performance Reviews</h1>
+      <div class="sub">Welcome, ${sp.name}. Firestore is connected but doesn't have the org chart or review cycles loaded yet.</div>
+      ${role==='hr' ? `<button class="btn" id="bootSeedBtn" style="width:100%;margin-top:10px;">Seed real org data</button>` : `<div class="login-note">Ask HR to finish setting up the app.</div>`}
+      <button class="btn ghost" id="bootSignOutBtn" style="width:100%;margin-top:10px;">Sign out</button>
+    </div></div>`;
+    document.getElementById('bootSeedBtn')?.addEventListener('click', async ()=>{
+      await seedFirestoreFromOrgData(); toast('Org data seeded');
+    });
+    document.getElementById('bootSignOutBtn').addEventListener('click', signOut);
+    return;
+  }
+  if(!STATE.activeCycleId || !getCycle(STATE.activeCycleId)){
+    const openCycle = DB.cycles.find(c=>c.status==='open');
+    STATE.activeCycleId = (openCycle || DB.cycles[DB.cycles.length-1]).id;
+  }
 
   // Nav is built from capabilities, not a single exclusive role — someone can be HR *and*
   // have direct reports (e.g. Priscila also manages an HR intern), so they need both sets of tabs.
@@ -450,8 +524,6 @@ function render(){
       <div class="brand">Plei <span>Performance Reviews</span></div>
       ${items.map(i=>`<div class="nav-item ${STATE.nav===i.id?'active':''}" data-nav="${i.id}">${i.label}</div>`).join('')}
       <div style="flex:1"></div>
-      <div class="nav-section">Demo prototype</div>
-      <div class="nav-item" data-action="reset">↺ Reset sample data</div>
     </div>
     <div class="main">
       <div class="topbar no-print">
@@ -481,11 +553,6 @@ function render(){
   </div>`;
 
   document.querySelectorAll('[data-nav]').forEach(el=>el.addEventListener('click', ()=>{ STATE.nav = el.dataset.nav; render(); }));
-  document.querySelector('[data-action="reset"]').addEventListener('click', ()=>{
-    if(confirm('This will erase changes made in the prototype and restore the sample data. Continue?')){
-      localStorage.removeItem(DB_KEY); DB = loadDB(); STATE.nav=null; render(); toast('Data reset');
-    }
-  });
   document.getElementById('cycleSelect').addEventListener('change', e=>{ STATE.activeCycleId = e.target.value; render(); });
   document.getElementById('previewSelect')?.addEventListener('change', e=>{ STATE.previewPersonId = e.target.value || null; STATE.nav=null; render(); });
   document.getElementById('signOutBtn').addEventListener('click', signOut);
@@ -624,15 +691,15 @@ function cycleModal(existingId){
     document.querySelectorAll('#cycleModalBg [data-type]').forEach(x=>x.classList.toggle('on', x.dataset.type===selType));
   }));
   document.getElementById('closeCycleModal').addEventListener('click', ()=>document.getElementById('cycleModalBg').remove());
-  document.getElementById('saveCycleBtn').addEventListener('click', ()=>{
+  document.getElementById('saveCycleBtn').addEventListener('click', async ()=>{
     const year = document.getElementById('cy_year').value.trim();
     const start = document.getElementById('cy_start').value;
     const end = document.getElementById('cy_end').value;
     if(!year || !start || !end){ alert('Please fill in year, start, and end dates.'); return; }
     const label = year + ' · ' + (selType==='mid'?'Mid-Year':'End-of-Year');
-    if(c){ c.year=+year; c.type=selType; c.startDate=start; c.endDate=end; c.label=label; }
-    else { DB.cycles.push({id:uid('cyc'), year:+year, type:selType, label, startDate:start, endDate:end, status:'draft'}); }
-    saveDB(DB); document.getElementById('cycleModalBg').remove(); render(); toast('Cycle saved');
+    if(c){ await fdb.collection('cycles').doc(c.id).set({year:+year, type:selType, startDate:start, endDate:end, label}, {merge:true}); }
+    else { await fdb.collection('cycles').doc(uid('cyc')).set({year:+year, type:selType, label, startDate:start, endDate:end, status:'draft'}); }
+    document.getElementById('cycleModalBg').remove(); toast('Cycle saved'); render();
   });
 }
 
@@ -722,7 +789,7 @@ function personModal(existingId){
   </div>`;
   document.body.insertAdjacentHTML('beforeend', modalHtml);
   document.getElementById('closePersonModal').addEventListener('click', ()=>document.getElementById('personModalBg').remove());
-  document.getElementById('savePersonBtn').addEventListener('click', ()=>{
+  document.getElementById('savePersonBtn').addEventListener('click', async ()=>{
     const name = document.getElementById('pp_name').value.trim();
     const email = document.getElementById('pp_email').value.trim();
     if(!name){ alert('Please enter a name.'); return; }
@@ -732,31 +799,32 @@ function personModal(existingId){
       title:document.getElementById('pp_title').value.trim(), department:document.getElementById('pp_dept').value,
       role:document.getElementById('pp_role').value, managerId:document.getElementById('pp_mgr').value||null
     };
-    if(p){ Object.assign(p, data); }
-    else { DB.people.push(Object.assign({id:uid('p'), invited:false, active:false}, data)); }
-    saveDB(DB); document.getElementById('personModalBg').remove(); render(); toast(p?'Person updated':'Person added — send them an invite so they can sign in');
+    if(p){ await fdb.collection('people').doc(p.id).set(data, {merge:true}); }
+    else { await fdb.collection('people').doc(uid('p')).set(Object.assign({invited:false, active:false}, data)); }
+    document.getElementById('personModalBg').remove(); toast(p?'Person updated':'Person added — send them an invite so they can sign in'); render();
   });
 }
 
-function deletePerson(id){
+async function deletePerson(id){
   if(id===STATE.sessionPersonId){ alert("You can't delete your own account while signed in."); return; }
   const p = getPerson(id);
   if(!p) return;
   if(!confirm(`Remove ${p.name} from the organization? This will also delete their review history and unassign anyone reporting to them.`)) return;
-  DB.people = DB.people.filter(x=>x.id!==id);
-  DB.people.forEach(x=>{ if(x.managerId===id) x.managerId=null; });
-  DB.reviews.self = DB.reviews.self.filter(r=>r.employeeId!==id);
-  DB.reviews.manager = DB.reviews.manager.filter(r=>r.employeeId!==id && r.managerId!==id);
-  DB.reviews.peer = DB.reviews.peer.filter(r=>r.targetId!==id && r._authorTag!==id);
-  DB.reviews.upward = DB.reviews.upward.filter(r=>r.managerId!==id && r._authorTag!==id);
+  const batch = fdb.batch();
+  batch.delete(fdb.collection('people').doc(id));
+  DB.people.forEach(x=>{ if(x.managerId===id) batch.update(fdb.collection('people').doc(x.id), {managerId:null}); });
+  DB.reviews.self.filter(r=>r.employeeId===id).forEach(r=>batch.delete(fdb.collection('reviews_self').doc(r.id)));
+  DB.reviews.manager.filter(r=>r.employeeId===id || r.managerId===id).forEach(r=>batch.delete(fdb.collection('reviews_manager').doc(r.id)));
+  DB.reviews.peer.filter(r=>r.targetId===id || r._authorTag===id).forEach(r=>batch.delete(fdb.collection('reviews_peer').doc(r.id)));
+  DB.reviews.upward.filter(r=>r.managerId===id || r._authorTag===id).forEach(r=>batch.delete(fdb.collection('reviews_upward').doc(r.id)));
+  await batch.commit();
   if(STATE.previewPersonId===id) STATE.previewPersonId=null;
-  saveDB(DB); render(); toast('Person removed');
+  toast('Person removed'); render();
 }
 
-function inviteModal(id){
+async function inviteModal(id){
   const p = getPerson(id);
-  p.invited = true; p.invitedAt = new Date().toISOString();
-  saveDB(DB); render();
+  await fdb.collection('people').doc(id).set({invited:true, invitedAt:new Date().toISOString()}, {merge:true});
   const msg = `Hi ${p.name},\n\nYou've been added to Plei's Performance Reviews. Please open the app and sign in with your Plei Google account (${p.email}) to get started.\n\n— HR`;
   const modalHtml = `<div class="modal-bg no-print" id="inviteModalBg"><div class="modal">
     <span class="close-x" id="closeInviteModal">✕</span>
@@ -786,27 +854,29 @@ function deptModal(existingName){
   </div>`;
   document.body.insertAdjacentHTML('beforeend', modalHtml);
   document.getElementById('closeDeptModal').addEventListener('click', ()=>document.getElementById('deptModalBg').remove());
-  document.getElementById('saveDeptBtn').addEventListener('click', ()=>{
+  document.getElementById('saveDeptBtn').addEventListener('click', async ()=>{
     const name = document.getElementById('dept_name').value.trim();
     if(!name){ alert('Please enter a department name.'); return; }
     if(DB.departments.includes(name) && name!==existingName){ alert('That department already exists.'); return; }
     if(existingName){
-      const idx = DB.departments.indexOf(existingName);
-      DB.departments[idx] = name;
-      DB.people.forEach(p=>{ if(p.department===existingName) p.department=name; });
+      const newDepartments = DB.departments.map(d=>d===existingName?name:d);
+      const batch = fdb.batch();
+      batch.set(fdb.collection('settings').doc('main'), {companyDomain:DB.settings.companyDomain, departments:newDepartments}, {merge:true});
+      DB.people.filter(p=>p.department===existingName).forEach(p=>batch.update(fdb.collection('people').doc(p.id), {department:name}));
+      await batch.commit();
     } else {
-      DB.departments.push(name);
+      await fdb.collection('settings').doc('main').set({companyDomain:DB.settings.companyDomain, departments:[...DB.departments, name]}, {merge:true});
     }
-    saveDB(DB); document.getElementById('deptModalBg').remove(); render(); toast('Department saved');
+    document.getElementById('deptModalBg').remove(); toast('Department saved'); render();
   });
 }
 
-function deleteDept(name){
+async function deleteDept(name){
   const count = DB.people.filter(p=>p.department===name).length;
   if(count>0){ alert(`Can't delete "${name}": ${count} ${count===1?'person is':'people are'} still assigned to it. Reassign them from the person editor first.`); return; }
   if(!confirm(`Delete the "${name}" department?`)) return;
-  DB.departments = DB.departments.filter(d=>d!==name);
-  saveDB(DB); render(); toast('Department deleted');
+  await fdb.collection('settings').doc('main').set({companyDomain:DB.settings.companyDomain, departments:DB.departments.filter(d=>d!==name)}, {merge:true});
+  toast('Department deleted'); render();
 }
 
 /* ============================= HR: MANAGER TRACKING ============================= */
@@ -1320,13 +1390,16 @@ function bindViewEvents(role, nav, cycle, person){
   // HR
   document.getElementById('newCycleBtn')?.addEventListener('click', ()=>cycleModal(null));
   document.querySelectorAll('[data-edit-cycle]').forEach(el=>el.addEventListener('click', ()=>cycleModal(el.dataset.editCycle)));
-  document.querySelectorAll('[data-toggle-cycle]').forEach(el=>el.addEventListener('click', ()=>{
-    const c = getCycle(el.dataset.toggleCycle); c.status = c.status==='open'?'closed':'open'; saveDB(DB); render(); toast('Status updated');
+  document.querySelectorAll('[data-toggle-cycle]').forEach(el=>el.addEventListener('click', async ()=>{
+    const c = getCycle(el.dataset.toggleCycle);
+    await fdb.collection('cycles').doc(c.id).update({status: c.status==='open'?'closed':'open'});
+    toast('Status updated'); render();
   }));
-  document.getElementById('saveDomainBtn')?.addEventListener('click', ()=>{
+  document.getElementById('saveDomainBtn')?.addEventListener('click', async ()=>{
     const val = document.getElementById('companyDomainInput').value.trim().toLowerCase().replace(/^@/,'');
     if(!val){ alert('Please enter a domain.'); return; }
-    DB.settings.companyDomain = val; saveDB(DB); render(); toast('Domain saved');
+    await fdb.collection('settings').doc('main').set({companyDomain:val, departments:DB.departments}, {merge:true});
+    toast('Domain saved'); render();
   });
   document.getElementById('newPersonBtn')?.addEventListener('click', ()=>personModal(null));
   document.querySelectorAll('[data-edit-person]').forEach(el=>el.addEventListener('click', ()=>personModal(el.dataset.editPerson)));
@@ -1385,18 +1458,21 @@ function bindManagerFormEvents(cycle, manager, employee){
     MANAGER_FIELDS.forEach(f=>{ answers[f.key] = host.querySelector(`[data-mgr-field="${f.key}"]`).value; });
     return answers;
   }
-  function upsert(status){
-    let rev = findReview('manager', cycle.id, x=>x.employeeId===employee.id);
-    if(!rev){ rev = {id:uid('mr'), cycleId:cycle.id, managerId:manager.id, employeeId:employee.id}; DB.reviews.manager.push(rev); }
-    rev.ratings = ratings; rev.answers = collectAnswers(); rev.status = status; rev.submittedAt = new Date().toISOString();
-    saveDB(DB);
+  async function upsert(status){
+    const rev = findReview('manager', cycle.id, x=>x.employeeId===employee.id);
+    const id = rev ? rev.id : uid('mr');
+    await fdb.collection('reviews_manager').doc(id).set({
+      cycleId:cycle.id, managerId:manager.id, managerEmail:manager.email,
+      employeeId:employee.id, employeeEmail:employee.email,
+      ratings, answers:collectAnswers(), status, submittedAt:new Date().toISOString()
+    }, {merge:true});
   }
-  host.querySelector('#submitManagerReview')?.addEventListener('click', ()=>{
+  host.querySelector('#submitManagerReview')?.addEventListener('click', async ()=>{
     const missing = MANAGER_RATINGS.filter(f=>!ratings[f.key]);
     if(missing.length){ alert('Please complete all ratings before submitting.'); return; }
-    upsert('submitted'); toast('Review submitted'); render();
+    await upsert('submitted'); toast('Review submitted'); render();
   });
-  host.querySelector('#saveDraftManagerReview')?.addEventListener('click', ()=>{ upsert('draft'); toast('Draft saved'); });
+  host.querySelector('#saveDraftManagerReview')?.addEventListener('click', async ()=>{ await upsert('draft'); toast('Draft saved'); });
 }
 
 function bindSelfFormEvents(cycle, person){
@@ -1408,14 +1484,17 @@ function bindSelfFormEvents(cycle, person){
     SELF_FIELDS.forEach(f=>{ const el = document.querySelector(`[data-self-field="${f.key}"]`); answers[f.key]=el?el.value:''; });
     return answers;
   }
-  function upsert(status){
-    let rev = findReview('self', cycle.id, x=>x.employeeId===person.id);
-    if(!rev){ rev = {id:uid('sr'), cycleId:cycle.id, employeeId:person.id}; DB.reviews.self.push(rev); }
-    rev.answers = collect(); rev.status = status; rev.submittedAt = new Date().toISOString();
-    saveDB(DB);
+  async function upsert(status){
+    const rev = findReview('self', cycle.id, x=>x.employeeId===person.id);
+    const id = rev ? rev.id : uid('sr');
+    const mgr = person.managerId ? getPerson(person.managerId) : null;
+    await fdb.collection('reviews_self').doc(id).set({
+      cycleId:cycle.id, employeeId:person.id, employeeEmail:person.email, managerEmail: mgr ? mgr.email : null,
+      answers: collect(), status, submittedAt:new Date().toISOString()
+    }, {merge:true});
   }
-  submitBtn?.addEventListener('click', ()=>{ upsert('submitted'); toast('Self-review submitted — your manager can now read it'); render(); });
-  draftBtn?.addEventListener('click', ()=>{ upsert('draft'); toast('Draft saved'); });
+  submitBtn?.addEventListener('click', async ()=>{ await upsert('submitted'); toast('Self-review submitted — your manager can now read it'); render(); });
+  draftBtn?.addEventListener('click', async ()=>{ await upsert('draft'); toast('Draft saved'); });
 }
 
 function bindPeerFormEvents(cycle, person){
@@ -1423,15 +1502,15 @@ function bindPeerFormEvents(cycle, person){
   if(!submitBtn) return;
   const ratings = {};
   PEER_RATINGS.forEach(f=>bindRatingRow(document, f, val=>ratings[f.key]=val));
-  submitBtn.addEventListener('click', ()=>{
+  submitBtn.addEventListener('click', async ()=>{
     const missing = PEER_RATINGS.filter(f=>!ratings[f.key]);
     if(missing.length){ alert('Please complete the ratings before submitting.'); return; }
     const targetId = document.getElementById('peerTarget').value;
     const answers = {};
     PEER_FIELDS.forEach(f=>{ answers[f.key] = document.querySelector(`[data-peer-field="${f.key}"]`).value; });
     if(!answers.strengths){ alert('Please fill in at least the strengths field.'); return; }
-    DB.reviews.peer.push({id:uid('pr'), cycleId:cycle.id, targetId, targetDept:document.getElementById('peerDept').value, anonymous:true, _authorTag:person.id, ratings, answers});
-    saveDB(DB); toast('Peer review submitted anonymously'); render();
+    await fdb.collection('reviews_peer').doc(uid('pr')).set({cycleId:cycle.id, targetId, targetDept:document.getElementById('peerDept').value, anonymous:true, _authorTag:person.id, authorEmail:person.email, ratings, answers});
+    toast('Peer review submitted anonymously'); render();
   });
 }
 
@@ -1440,26 +1519,26 @@ function bindUpwardFormEvents(cycle, person){
   if(!submitBtn) return;
   const ratings = {};
   UPWARD_RATINGS.forEach(f=>bindRatingRow(document, f, val=>ratings[f.key]=val));
-  submitBtn.addEventListener('click', ()=>{
+  submitBtn.addEventListener('click', async ()=>{
     const missing = UPWARD_RATINGS.filter(f=>!ratings[f.key]);
     if(missing.length){ alert('Please complete the ratings before submitting.'); return; }
     const answers = {};
     UPWARD_FIELDS.forEach(f=>{ answers[f.key] = document.querySelector(`[data-upward-field="${f.key}"]`).value; });
-    DB.reviews.upward.push({id:uid('ur'), cycleId:cycle.id, managerId:person.managerId, department:person.department, anonymous:true, _authorTag:person.id, ratings, answers});
-    saveDB(DB); toast('Review submitted anonymously to HR'); render();
+    await fdb.collection('reviews_upward').doc(uid('ur')).set({cycleId:cycle.id, managerId:person.managerId, department:person.department, anonymous:true, _authorTag:person.id, authorEmail:person.email, ratings, answers});
+    toast('Review submitted anonymously to HR'); render();
   });
 }
 
 function bindSuggestFormEvents(person){
   const submitBtn = document.getElementById('submitSuggestion');
   if(!submitBtn) return;
-  submitBtn.addEventListener('click', ()=>{
+  submitBtn.addEventListener('click', async ()=>{
     const text = document.getElementById('sg_text').value.trim();
     if(!text){ alert('Please write your suggestion.'); return; }
     const anon = document.getElementById('sg_anon').checked;
-    DB.suggestions.push({id:uid('sg'), cycleId:STATE.activeCycleId, anonymous:anon, authorName:anon?'':person.name,
+    await fdb.collection('suggestions').doc(uid('sg')).set({cycleId:STATE.activeCycleId, anonymous:anon, authorName:anon?'':person.name,
       category:document.getElementById('sg_cat').value, text, createdAt:new Date().toISOString().slice(0,10)});
-    saveDB(DB); toast('Suggestion submitted'); render();
+    toast('Suggestion submitted'); render();
   });
 }
 
