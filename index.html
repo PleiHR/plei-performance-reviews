@@ -377,12 +377,22 @@ function renderLogin(errorMsg){
   document.getElementById('demoEmailInput')?.addEventListener('keydown', e=>{ if(e.key==='Enter') attemptLogin(e.target.value); });
   document.querySelectorAll('[data-demo-login]').forEach(el=>el.addEventListener('click', ()=>attemptLogin(el.dataset.demoLogin)));
 
-  if(GOOGLE_CLIENT_ID && typeof google !== 'undefined' && google.accounts && google.accounts.id){
+  if(GOOGLE_CLIENT_ID){ tryRenderGoogleButton(0); }
+}
+
+// The Google Identity Services script loads asynchronously, so it may not be ready yet
+// the first time renderLogin() runs. Poll briefly (up to ~5s) until it's available.
+function tryRenderGoogleButton(attempts){
+  const host = document.getElementById('googleBtnHost');
+  if(!host) return; // user navigated away from the login screen already
+  if(typeof google !== 'undefined' && google.accounts && google.accounts.id){
     try{
       google.accounts.id.initialize({client_id: GOOGLE_CLIENT_ID, callback: handleGoogleCredential});
-      google.accounts.id.renderButton(document.getElementById('googleBtnHost'), {theme:'outline', size:'large', width:320});
+      google.accounts.id.renderButton(host, {theme:'outline', size:'large', width:320});
     }catch(e){}
+    return;
   }
+  if(attempts < 50){ setTimeout(()=>tryRenderGoogleButton(attempts+1), 100); }
 }
 
 function initApp(){
