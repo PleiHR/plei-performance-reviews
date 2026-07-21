@@ -379,6 +379,7 @@ function startReviewListeners(email, isHR){
     reviewListenerUnsubs.push(fdb.collection('upward_authorship').onSnapshot(snap=>{ DB.upwardAuthorship = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('peer_nominations').onSnapshot(snap=>{ DB.peerNominations = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('upward_summaries').onSnapshot(snap=>{ DB.upwardSummaries = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
+    reviewListenerUnsubs.push(fdb.collection('suggestions').onSnapshot(snap=>{ DB.suggestions = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
   } else {
     let selfMine = [], selfTeam = [];
     reviewListenerUnsubs.push(fdb.collection('reviews_self').where('employeeEmail','==',email).onSnapshot(snap=>{ selfMine = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); DB.reviews.self = mergeById(selfMine, selfTeam); if(DB_LOADED) render(); }, e=>console.error(e)));
@@ -393,6 +394,8 @@ function startReviewListeners(email, isHR){
     reviewListenerUnsubs.push(fdb.collection('reviews_peer').where('targetManagerEmail','==',email).onSnapshot(snap=>{ peerAsManager = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); DB.reviews.peer = mergeById(peerAsTarget, peerAsManager); if(DB_LOADED) render(); }, e=>console.error(e)));
     // Raw upward review content never reaches non-HR clients — only HR-published summaries do.
     DB.reviews.upward = [];
+    // Suggestions are HR-only — never loaded into non-HR clients, even for the person's own submission.
+    DB.suggestions = [];
     reviewListenerUnsubs.push(fdb.collection('upward_summaries').where('managerId','==',myId).onSnapshot(snap=>{ DB.upwardSummaries = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('peer_authorship').where('authorEmail','==',email).onSnapshot(snap=>{ DB.peerAuthorship = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('upward_authorship').where('authorEmail','==',email).onSnapshot(snap=>{ DB.upwardAuthorship = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
@@ -427,7 +430,7 @@ function onPeopleSynced(){
 
 function startBaseListeners(onFirstLoad){
   stopBaseListeners();
-  let pending = new Set(['people','cycles','settings','suggestions']);
+  let pending = new Set(['people','cycles','settings']);
   function done(key){ pending.delete(key); if(pending.size===0 && onFirstLoad){ const cb=onFirstLoad; onFirstLoad=null; cb(); } }
   peopleUnsub = fdb.collection('people').onSnapshot(snap=>{
     DB.people = snap.docs.map(d=>Object.assign({id:d.id}, d.data()));
@@ -447,11 +450,6 @@ function startBaseListeners(onFirstLoad){
     done('settings');
     if(DB_LOADED) render();
   }, e=>{ console.error(e); done('settings'); });
-  suggestionsUnsub = fdb.collection('suggestions').onSnapshot(snap=>{
-    DB.suggestions = snap.docs.map(d=>Object.assign({id:d.id}, d.data()));
-    done('suggestions');
-    if(DB_LOADED) render();
-  }, e=>{ console.error(e); done('suggestions'); });
 }
 
 /* ============================= APP STATE ============================= */
@@ -1604,7 +1602,7 @@ function viewSuggestForm(person){
     <div class="checkbox-row" style="margin-bottom:14px;"><input type="checkbox" id="sg_anon" checked><label for="sg_anon">Submit anonymously</label></div>
     <button class="btn" id="submitSuggestion">Submit suggestion</button>
   </div>
-  <div class="card"><h2>Community suggestions</h2>${viewSuggestions(false)}</div>`;
+  <div class="hrw-note" style="margin-top:14px;"><b>Only HR can read these.</b> Suggestions aren't shared with the rest of the company or with managers.</div>`;
 }
 
 /* ============================= MANAGER: MY REPORTS / PDF ============================= */
