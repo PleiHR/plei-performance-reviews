@@ -705,7 +705,7 @@ function renderView(nav, cycle, person){
     case 'reminders': return viewReminders(cycle);
     case 'nomapprove': return viewNominationApproval(cycle, person);
     case 'myfeedback': return viewMyTeamFeedback(cycle, person);
-    case 'howreviews': return viewHowReviewsWork();
+    case 'howreviews': return viewHowReviewsWork(person);
   }
   return '<div class="empty">Nothing to show.</div>';
 }
@@ -1368,7 +1368,33 @@ function viewSelfForm(cycle, person){
 
 /* ============================= PEER REVIEW FORM ============================= */
 /* ============================= HOW REVIEWS WORK ============================= */
-function viewHowReviewsWork(){
+const EMPLOYEE_STEPS = [
+  {title:'Write your self-review', body:'Reflect on your accomplishments, goals, and growth areas for this cycle. Named — your manager and HR can read it.'},
+  {title:'Nominate 3–5 peers', body:'Pick the peers you’d like feedback from. Your manager reviews and approves the list before anyone is asked to review you.'},
+  {title:'Review the peers who nominate you', body:'If a teammate lists you as a nominee, you’ll be asked to write a peer review about them under Peer Reviews. Submitted anonymously.'},
+  {title:'Review your manager', body:'Give feedback on your manager’s support and communication under Review My Manager. Anonymous — it goes to HR first, never straight to your manager.'},
+  {title:'Get your manager’s review', body:'Your manager writes about your performance. Once both are in, you see the combined self + manager report ahead of your 1:1.'},
+  {title:'Acknowledge', body:'After your 1:1, confirm you’ve seen your review from My Reviews. This is what creates the audit trail HR needs.'},
+  {title:'Cycle closes', body:'Once HR locks the cycle, all reviews become read-only — nothing can be edited or submitted late.'},
+];
+const MANAGER_STEPS = [
+  {title:'Approve peer nominations', body:'Under Approve Peer Nominations, review and approve each direct report’s list of 3–5 nominees before they can be reviewed.'},
+  {title:'Write manager reviews', body:'Evaluate each direct report. They’ll see this next to their self-review before your 1:1 — leave enough time before the deadline.'},
+  {title:'Track your team', body:'Use My Team to see who on your team is behind on their self-review, nominations, or peer reviews, so nobody surprises you at the deadline.'},
+  {title:'Receive upward feedback', body:'Once HR publishes a summary — only after at least 3 responses — check My Upward Feedback for aggregate scores and HR-written themes. You’ll never see raw quotes or who wrote what.'},
+  {title:'Download reports for your 1:1s', body:'Pull the combined self + manager PDF from Reports / PDF ahead of each conversation, so you\'re both looking at the same document.'},
+];
+function stepRow(num, title, body){
+  return `<div class="row" style="align-items:flex-start;gap:14px;margin-bottom:16px;flex-wrap:nowrap;">
+    <div class="avatar" style="flex-shrink:0;">${num}</div>
+    <div>
+      <div style="font-weight:600;margin-bottom:3px;">${title}</div>
+      <div class="small muted">${body}</div>
+    </div>
+  </div>`;
+}
+function viewHowReviewsWork(person){
+  const isManager = person && hasReports(person.id);
   return `<div class="card">
     <h2>How reviews work</h2>
     <div class="desc">Four types of feedback, each with different visibility rules. Knowing who sees what before you write anything is the whole point — candor depends on trusting these rules.</div>
@@ -1377,7 +1403,17 @@ function viewHowReviewsWork(){
       <div style="margin-bottom:6px;"><b>${t.who}</b></div>
       <p style="margin:0;">${t.detail}</p>
     </div>`).join('')}
-  </div>`;
+  </div>
+  <div class="card">
+    <h2>Step by step — for everyone</h2>
+    <div class="desc">What to do, in order, over the course of a cycle. Every step below applies to you no matter your role.</div>
+    ${EMPLOYEE_STEPS.map((s,i)=>stepRow(i+1, s.title, s.body)).join('')}
+  </div>
+  ${isManager?`<div class="card">
+    <h2>Step by step — if you manage people</h2>
+    <div class="desc">On top of everything above, as a manager you also need to do the following for your direct reports.</div>
+    ${MANAGER_STEPS.map((s,i)=>stepRow(i+1, s.title, s.body)).join('')}
+  </div>`:''}`;
 }
 
 /* ============================= MANAGER: APPROVE PEER NOMINATIONS ============================= */
