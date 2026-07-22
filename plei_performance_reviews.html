@@ -782,6 +782,7 @@ function viewCycles(){
               ${c.status!=='locked'?`<button class="btn ghost sm" data-toggle-cycle="${c.id}">${c.status==='open'?'Close':'Reopen'}</button>`:''}
               ${c.status==='closed'?`<button class="btn danger sm" data-lock-cycle="${c.id}">Close & lock</button>`:''}
               ${c.status==='locked'?`<button class="btn ghost sm" data-unlock-cycle="${c.id}">Unlock (admin)</button>`:''}
+              <button class="btn danger sm" data-delete-cycle="${c.id}">Delete</button>
             </td>
           </tr>`).join('')}
       </tbody>
@@ -789,6 +790,48 @@ function viewCycles(){
   </div>`;
 }
 
+async function deleteCycle(cycleId){
+  const c = getCycle(cycleId);
+  if(!c) return;
+  const [selfSnap, mgrSnap, peerSnap, upwardSnap, peerAuthSnap, upwardAuthSnap] = await Promise.all([
+    fdb.collection('reviews_self').where('cycleId','==',cycleId).get(),
+    fdb.collection('reviews_manager').where('cycleId','==',cycleId).get(),
+    fdb.collection('reviews_peer').where('cycleId','==',cycleId).get(),
+    fdb.collection('reviews_upward').where('cycleId','==',cycleId).get(),
+    fdb.collection('peer_authorship').where('cycleId','==',cycleId).get(),
+    fdb.collection('upward_authorship').where('cycleId','==',cycleId).get(),
+  ]);
+  const [peerCountsSnap, upwardCountsSnap, peerSummariesSnap, upwardSummariesSnap] = await Promise.all([
+    fdb.collection('peer_counts').get(),
+    fdb.collection('upward_counts').get(),
+    fdb.collection('peer_summaries').where('cycleId','==',cycleId).get(),
+    fdb.collection('upward_summaries').where('cycleId','==',cycleId).get(),
+  ]);
+  const peerCountsDocs = peerCountsSnap.docs.filter(d=>d.id.endsWith('_'+cycleId));
+  const upwardCountsDocs = upwardCountsSnap.docs.filter(d=>d.id.endsWith('_'+cycleId));
+
+  const total = selfSnap.size + mgrSnap.size + peerSnap.size + upwardSnap.size + peerAuthSnap.size + upwardAuthSnap.size + peerCountsDocs.length + upwardCountsDocs.length + peerSummariesSnap.size + upwardSummariesSnap.size;
+  const warning = total > 0
+    ? `This cycle has review data attached: ${selfSnap.size} self-reviews, ${mgrSnap.size} manager reviews, ${peerSnap.size} company wide feedback entries, ${upwardSnap.size} upward reviews, plus related summaries and counters. Deleting "${c.label}" will permanently erase all of it — this cannot be undone.`
+    : `"${c.label}" has no review data attached — it's safe to delete.`;
+  if(!confirm(`Delete "${c.label}"?\n\n${warning}`)) return;
+
+  const allDocs = [
+    ...selfSnap.docs, ...mgrSnap.docs, ...peerSnap.docs, ...upwardSnap.docs,
+    ...peerAuthSnap.docs, ...upwardAuthSnap.docs,
+    ...peerCountsDocs, ...upwardCountsDocs,
+    ...peerSummariesSnap.docs, ...upwardSummariesSnap.docs,
+  ];
+  for(let i=0; i<allDocs.length; i+=400){
+    const batch = fdb.batch();
+    allDocs.slice(i, i+400).forEach(d=>batch.delete(d.ref));
+    await batch.commit();
+  }
+  await fdb.collection('cycles').doc(cycleId).delete();
+  toast('Cycle deleted');
+  if(STATE.activeCycleId===cycleId) STATE.activeCycleId = null;
+  render();
+}
 function cycleModal(existingId){
   const c = existingId ? getCycle(existingId) : null;
   const modalHtml = `
@@ -1800,6 +1843,7 @@ function bindViewEvents(role, nav, cycle, person){
     await fdb.collection('cycles').doc(el.dataset.unlockCycle).update({status:'closed', unlockedAt:new Date().toISOString(), unlockedBy:sessionPerson().email});
     toast('Cycle unlocked'); render();
   }));
+  document.querySelectorAll('[data-delete-cycle]').forEach(el=>el.addEventListener('click', ()=>deleteCycle(el.dataset.deleteCycle)));
   document.getElementById('saveDomainBtn')?.addEventListener('click', async ()=>{
     const val = document.getElementById('companyDomainInput').value.trim().toLowerCase().replace(/^@/,'');
     if(!val){ alert('Please enter a domain.'); return; }
