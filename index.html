@@ -202,13 +202,13 @@ const HOW_REVIEWS_WORK = [
    detail:'You reflect on your own performance. Your manager sees it before writing their review, and HR can see it for calibration.'},
   {type:'Manager review', anon:false, who:'Named — your manager writes it, you and HR can read it.',
    detail:'Your manager evaluates your performance. You receive the combined report (your self-review + their review) to discuss in your 1:1.'},
-  {type:'Company wide feedback', anon:true, who:'Anonymous — the person and their manager see the content, never who wrote it.',
-   detail:`Anyone at Plei can leave feedback about any colleague, anytime — entirely optional, no nomination or request needed. Use it to share something positive, or to flag a concern. To protect anonymity, a person's feedback only becomes visible to them and their manager once at least ${ANONYMITY_MIN} pieces of feedback have been submitted about them — with fewer, it's too easy to guess who wrote what.`},
+  {type:'Company wide feedback', anon:true, who:'Anonymous — HR reads the raw feedback first; the person and their manager only ever see a summary HR writes, never the original quotes.',
+   detail:`Anyone at Plei can leave feedback about any colleague, anytime — entirely optional, no nomination or request needed. Use it to share something positive, or to flag a concern. Raw feedback goes to HR only. Once at least ${ANONYMITY_MIN} pieces of feedback exist about someone, HR reviews it and publishes a summary to that person and their manager — never the raw quotes, so no one can guess who wrote what.`},
   {type:'Upward review', anon:true, who:'Anonymous — HR reviews it first; your manager never sees raw responses.',
    detail:`You review your own manager. HR reads the raw feedback, then shares aggregate scores and HR-summarized themes with the manager — only once at least ${ANONYMITY_MIN} responses exist. If a manager has fewer than ${ANONYMITY_MIN} direct reports, HR delivers the themes verbally instead of publishing them in the app.`},
 ];
 function howReviewsWorkBlurb(){
-  return `<div class="hrw-note"><b>${icon('shield',14)} How reviews work:</b> Self and manager reviews are named. Peer and upward reviews are anonymous and only become visible once ${ANONYMITY_MIN}+ responses exist — see <a href="#" data-nav="howreviews">How reviews work</a> for the full breakdown.</div>`;
+  return `<div class="hrw-note"><b>${icon('shield',14)} How reviews work:</b> Self and manager reviews are named. Company wide feedback and upward reviews are anonymous — HR reads the raw responses first and shares only a summary, once ${ANONYMITY_MIN}+ responses exist — see <a href="#" data-nav="howreviews">How reviews work</a> for the full breakdown.</div>`;
 }
 
 
@@ -352,7 +352,7 @@ async function seedFirestoreFromOrgData(){
    The rest of the app reads/renders from this object exactly like the old localStorage version did. */
 let DB = {departments:[], people:[], cycles:[], settings:{companyDomain:'plei.com'},
   reviews:{self:[], manager:[], peer:[], upward:[]}, suggestions:[],
-  peerCounts:[], peerAuthorship:[],
+  peerCounts:[], peerAuthorship:[], peerSummaries:[],
   upwardCounts:[], upwardSummaries:[], upwardAuthorship:[]};
 let DB_LOADED = false;
 let CURRENT_USER = null; // {uid, email}
@@ -379,6 +379,7 @@ function startReviewListeners(email, isHR){
     reviewListenerUnsubs.push(fdb.collection('peer_authorship').onSnapshot(snap=>{ DB.peerAuthorship = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('upward_authorship').onSnapshot(snap=>{ DB.upwardAuthorship = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('upward_summaries').onSnapshot(snap=>{ DB.upwardSummaries = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
+    reviewListenerUnsubs.push(fdb.collection('peer_summaries').onSnapshot(snap=>{ DB.peerSummaries = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('suggestions').onSnapshot(snap=>{ DB.suggestions = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
   } else {
     let selfMine = [], selfTeam = [];
@@ -387,11 +388,11 @@ function startReviewListeners(email, isHR){
     let mgrMine = [], mgrTeam = [];
     reviewListenerUnsubs.push(fdb.collection('reviews_manager').where('employeeEmail','==',email).onSnapshot(snap=>{ mgrMine = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); DB.reviews.manager = mergeById(mgrMine, mgrTeam); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('reviews_manager').where('managerEmail','==',email).onSnapshot(snap=>{ mgrTeam = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); DB.reviews.manager = mergeById(mgrMine, mgrTeam); if(DB_LOADED) render(); }, e=>console.error(e)));
-    // Peer review CONTENT is only readable once it belongs to you (as target) or your reports (as their manager),
-    // and only once the anonymity threshold is met — enforced server-side by Firestore rules via peer_counts.
-    let peerAsTarget = [], peerAsManager = [];
-    reviewListenerUnsubs.push(fdb.collection('reviews_peer').where('targetEmail','==',email).onSnapshot(snap=>{ peerAsTarget = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); DB.reviews.peer = mergeById(peerAsTarget, peerAsManager); if(DB_LOADED) render(); }, e=>console.error(e)));
-    reviewListenerUnsubs.push(fdb.collection('reviews_peer').where('targetManagerEmail','==',email).onSnapshot(snap=>{ peerAsManager = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); DB.reviews.peer = mergeById(peerAsTarget, peerAsManager); if(DB_LOADED) render(); }, e=>console.error(e)));
+    // Raw company wide feedback content never reaches non-HR clients — only HR-published summaries do.
+    DB.reviews.peer = [];
+    let peerSummaryAsTarget = [], peerSummaryAsManager = [];
+    reviewListenerUnsubs.push(fdb.collection('peer_summaries').where('targetEmail','==',email).onSnapshot(snap=>{ peerSummaryAsTarget = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); DB.peerSummaries = mergeById(peerSummaryAsTarget, peerSummaryAsManager); if(DB_LOADED) render(); }, e=>console.error(e)));
+    reviewListenerUnsubs.push(fdb.collection('peer_summaries').where('managerEmail','==',email).onSnapshot(snap=>{ peerSummaryAsManager = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); DB.peerSummaries = mergeById(peerSummaryAsTarget, peerSummaryAsManager); if(DB_LOADED) render(); }, e=>console.error(e)));
     // Raw upward review content never reaches non-HR clients — only HR-published summaries do.
     DB.reviews.upward = [];
     // Suggestions are HR-only — never loaded into non-HR clients, even for the person's own submission.
@@ -474,6 +475,7 @@ function upwardCountFor(managerId, cycleId){ const d = DB.upwardCounts.find(c=>c
 function peerVisible(targetId, cycleId){ return peerCountFor(targetId, cycleId) >= ANONYMITY_MIN; }
 function upwardVisible(managerId, cycleId){ return upwardCountFor(managerId, cycleId) >= ANONYMITY_MIN; }
 function upwardSummaryFor(managerId, cycleId){ return DB.upwardSummaries.find(s=>s.id===managerId+'_'+cycleId); }
+function peerSummaryFor(targetId, cycleId){ return DB.peerSummaries.find(s=>s.id===targetId+'_'+cycleId); }
 
 function fmtDate(d){ if(!d) return '—'; const dt=new Date(d+'T00:00:00'); return dt.toLocaleDateString('en-US',{day:'2-digit',month:'short',year:'numeric'}); }
 
@@ -1069,36 +1071,38 @@ function viewPeerHR(cycle){
 
   const coverageRows = DB.people.filter(p=>!p.deactivated).map(p=>{
     const count = peerCountFor(p.id, cycle.id);
-    return {p, count, visible: count>=ANONYMITY_MIN};
+    return {p, count, readyToSummarize: count>=ANONYMITY_MIN};
   }).sort((a,b)=>b.count-a.count);
   const belowMin = coverageRows.filter(r=>r.count>0 && r.count<ANONYMITY_MIN).length;
   const zero = coverageRows.filter(r=>r.count===0).length;
 
   return `<div class="card">
     <h2>Company wide feedback — response counts</h2>
-    <div class="desc">${cycle.label} — anyone can leave feedback about anyone, anytime; it's optional, so counts vary by person. Feedback stays hidden from the person and their manager until ${ANONYMITY_MIN}+ responses exist about them.</div>
+    <div class="desc">${cycle.label} — anyone can leave feedback about anyone, anytime; it's optional, so counts vary by person. Raw feedback is for HR only. Once ${ANONYMITY_MIN}+ responses exist about someone, publish a summary below to share with them and their manager.</div>
     <div class="row" style="margin-bottom:10px;">
       <span class="tag">${reviews.length} pieces of feedback received</span>
       <span class="badge ${belowMin?'warn':'ok'}">${belowMin} below the ${ANONYMITY_MIN}-response minimum</span>
       <span class="badge neutral">${zero} with none yet</span>
     </div>
-    <table><thead><tr><th>Person</th><th>Responses</th><th>Visible to person/manager?</th></tr></thead><tbody>
+    <table><thead><tr><th>Person</th><th>Responses</th><th>Ready to summarize?</th></tr></thead><tbody>
     ${coverageRows.map(r=>`<tr>
       <td><div class="person-cell"><div class="avatar">${initials(r.p.name)}</div>${r.p.name}</div></td>
       <td>${r.count}</td>
-      <td>${r.visible?'<span class="badge ok">Yes</span>':'<span class="badge neutral">Not yet</span>'}</td>
+      <td>${r.readyToSummarize?'<span class="badge ok">Yes</span>':'<span class="badge neutral">Not yet</span>'}</td>
     </tr>`).join('')}
     </tbody></table>
   </div>
   <div class="card">
-    <h2>Feedback content</h2>
-    <div class="desc">Grouped by the person being reviewed — the author is never revealed, even to HR.</div>
+    <h2>Feedback content — HR only</h2>
+    <div class="desc">Grouped by the person being reviewed — the author is never revealed, even to HR. Raw quotes below never reach the person or their manager; write a summary in your own words and publish it once ${ANONYMITY_MIN}+ responses exist.</div>
     <div class="row" style="margin-bottom:10px;"><span class="tag">${reviews.length} received in total</span></div>
     ${Object.keys(byTarget).length===0?'<div class="empty">No feedback yet this cycle.</div>':''}
     ${Object.keys(byTarget).map(tid=>{
       const person = getPerson(tid);
       const list = byTarget[tid];
       const avgScore = avg(list.map(ratingAvgOfReview).filter(Boolean));
+      const meetsMin = list.length >= ANONYMITY_MIN;
+      const summary = peerSummaryFor(tid, cycle.id);
       return `<div style="margin-bottom:18px;">
         <div class="row" style="justify-content:space-between;">
           <div class="person-cell"><div class="avatar">${initials(person.name)}</div><b>${person.name}</b><span class="tag">${person.department}</span></div>
@@ -1110,6 +1114,14 @@ function viewPeerHR(cycle){
           ${r.answers.example?`<div><b>Example:</b> ${r.answers.example}</div>`:''}
           ${r.answers.growth?`<div><b>Suggestion:</b> ${r.answers.growth}</div>`:''}
         </div>`).join('')}
+        ${!meetsMin ? `<div class="login-note">Below the ${ANONYMITY_MIN}-response minimum — nothing can be published yet.</div>` : `
+        <div class="field"><label>Summary to share with ${person.name} and their manager</label><div class="hint">Summarize the raw feedback above in your own words — this is what they'll see, never the raw quotes.</div>
+          <textarea data-peer-summary-themes="${tid}">${summary?summary.themes||'':''}</textarea>
+        </div>
+        <div class="row">
+          <button class="btn sm" data-publish-peer-summary="${tid}">${summary&&summary.published?'Update published summary':'Publish summary'}</button>
+          ${summary&&summary.published?`<span class="badge ok">${icon('check',11)} Published ${fmtDate((summary.publishedAt||'').slice(0,10))}</span>`:''}
+        </div>`}
       </div>`;
     }).join('')}
   </div>`;
@@ -1278,18 +1290,20 @@ function viewMyTeam(cycle, person){
     </div>
     <div class="bar-wrap" style="margin-bottom:16px;"><div class="bar-fill" style="width:${pct}%"></div></div>
     <table>
-      <thead><tr><th>Person</th><th>Title</th><th>Self-review</th><th>Manager review</th><th></th></tr></thead>
+      <thead><tr><th>Person</th><th>Title</th><th>Self-review</th><th>Manager review</th><th>Company wide feedback</th><th></th></tr></thead>
       <tbody>
         ${reports.map(r=>{
           const selfRev = findReview('self',cycle.id,x=>x.employeeId===r.id);
           const mgrRev = findReview('manager',cycle.id,x=>x.employeeId===r.id);
           const done = mgrRev && mgrRev.status==='submitted';
           const selfSubmitted = selfRev && selfRev.status==='submitted';
+          const peerSummary = peerSummaryFor(r.id, cycle.id);
           return `<tr>
             <td><div class="person-cell"><div class="avatar">${initials(r.name)}</div>${r.name}</div></td>
             <td class="muted small">${r.title}</td>
             <td>${selfSubmitted?`<span class="badge ok">Submitted</span> <button class="btn ghost sm" data-view-self="${r.id}">Read</button>`:'<span class="badge neutral">Pending</span>'}</td>
             <td>${done?'<span class="badge ok">Completed</span>':'<span class="badge bad">Pending</span>'}</td>
+            <td>${peerSummary&&peerSummary.published?`<button class="btn ghost sm" data-view-peer-summary="${r.id}">View summary</button>`:'<span class="badge neutral">None yet</span>'}</td>
             <td><button class="btn sm" data-fill-manager="${r.id}">${done?'View / edit':'Complete review'}</button></td>
           </tr>`;
         }).join('')}
@@ -1312,6 +1326,21 @@ function selfReviewModal(cycle, employee){
   document.body.insertAdjacentHTML('beforeend', modalHtml);
   document.getElementById('closeSelfReviewModal').addEventListener('click', ()=>document.getElementById('selfReviewModalBg').remove());
   document.getElementById('downloadSelfFromModal').addEventListener('click', ()=>printHtml(buildSelfOnlyPrintable(cycle, employee)));
+}
+function peerSummaryModal(cycle, targetPerson){
+  const summary = peerSummaryFor(targetPerson.id, cycle.id);
+  if(!summary || !summary.published){ return; }
+  const modalHtml = `<div class="modal-bg no-print" id="peerSummaryModalBg"><div class="modal" style="width:620px;">
+    <span class="close-x" id="closePeerSummaryModal">✕</span>
+    <h3>Company wide feedback — ${targetPerson.name}</h3>
+    <div class="desc">${cycle.label} · ${summary.responseCount} anonymous responses, summarized by HR. Raw quotes are never shown.</div>
+    <div class="grid grid-3" style="margin:14px 0;">
+      ${PEER_RATINGS.map(f=>`<div class="stat"><div class="num">${summary.avgRatings&&summary.avgRatings[f.key]?summary.avgRatings[f.key].toFixed(1):'—'}</div><div class="lbl">${f.label}</div></div>`).join('')}
+    </div>
+    <div class="quote-card"><div class="meta">Summary from HR</div><p style="margin:0;white-space:pre-wrap;">${summary.themes||'—'}</p></div>
+  </div></div>`;
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+  document.getElementById('closePeerSummaryModal').addEventListener('click', ()=>document.getElementById('peerSummaryModalBg').remove());
 }
 
 function viewManagerReviewForm(cycle, manager, employee){
@@ -1366,9 +1395,10 @@ function viewSelfForm(cycle, person){
 /* ============================= HOW REVIEWS WORK ============================= */
 const EMPLOYEE_STEPS = [
   {title:'Write your self-review', body:'Reflect on your accomplishments, goals, and growth areas for this cycle. Named — your manager and HR can read it.'},
-  {title:'Give company wide feedback (optional, anytime)', body:'Pick a department, then a person, and leave anonymous feedback about anyone at Plei — positive or a concern. Not required, and nobody needs to ask you first.'},
+  {title:'Give company wide feedback (optional, anytime)', body:'Pick a department, then a person, and leave anonymous feedback about anyone at Plei — positive or a concern. Not required, and nobody needs to ask you first. It goes to HR only — the person never sees raw feedback or who wrote it.'},
   {title:'Review your manager', body:'Give feedback on your manager’s support and communication under Review My Manager. Anonymous — it goes to HR first, never straight to your manager.'},
   {title:'Get your manager’s review', body:'Your manager writes about your performance. Once both are in, you see the combined self + manager report ahead of your 1:1.'},
+  {title:'See feedback about you', body:'If colleagues leave company wide feedback about you, HR reviews it and, once there are enough responses, publishes a summary to My Profile — never the raw quotes.'},
   {title:'Acknowledge', body:'After your 1:1, confirm you’ve seen your review from My Profile. This is what creates the audit trail HR needs.'},
   {title:'Cycle closes', body:'Once HR locks the cycle, all reviews become read-only — nothing can be edited or submitted late.'},
 ];
@@ -1376,6 +1406,7 @@ const MANAGER_STEPS = [
   {title:'Write manager reviews', body:'Evaluate each direct report. They’ll see this next to their self-review before your 1:1 — leave enough time before the deadline.'},
   {title:'Track your team', body:'Use My Team to see who on your team is behind on their self-review, so nobody surprises you at the deadline.'},
   {title:'Receive upward feedback', body:'Once HR publishes a summary — only after at least 3 responses — check My Upward Feedback for aggregate scores and HR-written themes. You’ll never see raw quotes or who wrote what.'},
+  {title:'See company wide feedback about your team', body:'If colleagues leave feedback about one of your reports, HR reviews it and, once there are enough responses, publishes a summary you can see from My Team. You’ll never see the raw quotes or who wrote them.'},
   {title:'Download reports for your 1:1s', body:'Pull the combined self + manager PDF from Reports / PDF ahead of each conversation, so you\'re both looking at the same document.'},
 ];
 
@@ -1481,12 +1512,12 @@ function viewReminders(cycle){
 }
 
 function viewPeerForm(cycle, person){
-  const mine = DB.peerAuthorship.filter(r=>r.cycleId===cycle.id);
+  const mine = DB.peerAuthorship.filter(r=>r.cycleId===cycle.id && r.authorEmail===person.email);
   const dept = STATE.cwDept;
   const targetId = STATE.cwTarget;
   const depts = Array.from(new Set(DB.people.filter(p=>!p.deactivated).map(p=>p.department))).sort();
 
-  const explainer = `<div class="hrw-note"><b>${icon('shield',14)} How this works:</b> Company wide feedback is anonymous and completely optional — nobody is assigned to review you, and you don't need to be asked to give feedback. Use it to share something positive about a colleague, or to flag a concern or a negative aspect you think needs attention. Pick a department, then the person, then leave your feedback.</div>`;
+  const explainer = `<div class="hrw-note"><b>${icon('shield',14)} How this works:</b> Company wide feedback is anonymous and completely optional — nobody is assigned to review you, and you don't need to be asked to give feedback. Use it to share something positive about a colleague, or to flag a concern or a negative aspect you think needs attention. Pick a department, then the person, then leave your feedback. Your feedback goes to HR only — the person and their manager never see raw feedback or who wrote it, only a summary HR shares once enough responses come in.</div>`;
 
   let body;
   if(!dept){
@@ -1533,7 +1564,7 @@ function viewPeerForm(cycle, person){
   </div>`;
 }
 function renderMyPeerSubmissions(cycle, person){
-  const mine = DB.peerAuthorship.filter(r=>r.cycleId===cycle.id);
+  const mine = DB.peerAuthorship.filter(r=>r.cycleId===cycle.id && r.authorEmail===person.email);
   if(!mine.length) return "<div class=\"empty\">You haven't given any feedback this cycle.</div>";
   return `<ul>${mine.map(r=>`<li>About ${getPerson(r.targetId)?getPerson(r.targetId).name:'—'} — ${fmtDate(cycle.startDate)} <button class="btn ghost sm" data-print-peer="${r.id}">🖨️ Download PDF</button></li>`).join('')}</ul>`;
 }
@@ -1600,7 +1631,8 @@ function viewMyReports(cycle, person){
 function viewMyReviews(cycle, person){
   const selfRev = findReview('self',cycle.id,x=>x.employeeId===person.id);
   const mgrRev = findReview('manager',cycle.id,x=>x.employeeId===person.id);
-  const myPeerReviews = DB.peerAuthorship.filter(r=>r.cycleId===cycle.id).sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
+  const myPeerReviews = DB.peerAuthorship.filter(r=>r.cycleId===cycle.id && r.authorEmail===person.email).sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
+  const myPeerSummary = peerSummaryFor(person.id, cycle.id);
   return `<div class="card">
     <h2>My profile — ${cycle.label}</h2>
     ${howReviewsWorkBlurb()}
@@ -1624,6 +1656,16 @@ function viewMyReviews(cycle, person){
     <h2>Add cycle deadline to my calendar</h2>
     <div class="desc">Deadline: ${fmtDate(cycle.endDate)}</div>
     <button class="btn ghost sm" id="downloadMyIcs">📅 Download .ics</button>
+  </div>
+  <div class="card">
+    <h2>Company wide feedback about me</h2>
+    <div class="desc">HR reviews raw company wide feedback and shares a summary here once enough responses come in — never the raw quotes.</div>
+    ${myPeerSummary && myPeerSummary.published ? `
+      <div class="grid grid-3" style="margin-bottom:16px;">
+        ${PEER_RATINGS.map(f=>`<div class="stat"><div class="num">${myPeerSummary.avgRatings&&myPeerSummary.avgRatings[f.key]?myPeerSummary.avgRatings[f.key].toFixed(1):'—'}</div><div class="lbl">${f.label}</div></div>`).join('')}
+      </div>
+      <div class="quote-card"><div class="meta">Summary from HR · ${myPeerSummary.responseCount} responses</div><p style="margin:0;white-space:pre-wrap;">${myPeerSummary.themes||'—'}</p></div>
+    ` : `<div class="empty">HR hasn't published a summary for this cycle yet.</div>`}
   </div>
   <div class="card">
     <h2>Company wide feedback I've given</h2>
@@ -1787,6 +1829,9 @@ function bindViewEvents(role, nav, cycle, person){
   document.querySelectorAll('[data-view-self]').forEach(el=>el.addEventListener('click', ()=>{
     selfReviewModal(cycle, getPerson(el.dataset.viewSelf));
   }));
+  document.querySelectorAll('[data-view-peer-summary]').forEach(el=>el.addEventListener('click', ()=>{
+    peerSummaryModal(cycle, getPerson(el.dataset.viewPeerSummary));
+  }));
 
   // Self review form
   bindSelfFormEvents(cycle, person);
@@ -1832,6 +1877,23 @@ function bindViewEvents(role, nav, cycle, person){
       managerId, cycleId:cycle.id, avgRatings, themes, responseCount:list.length, published:true, publishedAt:new Date().toISOString()
     }, {merge:true});
     toast('Summary published to manager'); render();
+  }));
+  document.querySelectorAll('[data-publish-peer-summary]').forEach(el=>el.addEventListener('click', async ()=>{
+    const targetId = el.dataset.publishPeerSummary;
+    const cycle = getCycle(STATE.activeCycleId);
+    const target = getPerson(targetId);
+    const targetMgr = target.managerId ? getPerson(target.managerId) : null;
+    const list = DB.reviews.peer.filter(r=>r.cycleId===cycle.id && r.targetId===targetId);
+    const avgRatings = {};
+    PEER_RATINGS.forEach(f=>{ avgRatings[f.key] = avg(list.map(r=>r.ratings[f.key]).filter(Boolean)); });
+    const themesEl = document.querySelector(`[data-peer-summary-themes="${targetId}"]`);
+    const themes = themesEl ? themesEl.value : '';
+    await fdb.collection('peer_summaries').doc(targetId+'_'+cycle.id).set({
+      targetId, cycleId:cycle.id, managerId: target.managerId||null,
+      targetEmail: target.email, managerEmail: targetMgr?targetMgr.email:null,
+      avgRatings, themes, responseCount:list.length, published:true, publishedAt:new Date().toISOString()
+    }, {merge:true});
+    toast('Summary published to person and manager'); render();
   }));
 }
 
