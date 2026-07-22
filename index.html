@@ -13,6 +13,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
   :root{
     /* Plei Brand Guide v1.0 (updated May 2026) */
@@ -206,6 +207,8 @@ const HOW_REVIEWS_WORK = [
    detail:`Anyone at Plei can leave feedback about any colleague, anytime — entirely optional, no nomination or request needed. Use it to share something positive, or to flag a concern. Raw feedback goes to HR only. Once at least ${ANONYMITY_MIN} pieces of feedback exist about someone, HR reviews it and publishes a summary to that person and their manager — never the raw quotes, so no one can guess who wrote what.`},
   {type:'Upward review', anon:true, who:'Anonymous — HR reviews it first; raw responses are never shared with the manager.',
    detail:`You review your own manager. HR reads all the raw feedback, analyzes it, and writes an overall summary and evaluation — only once at least ${ANONYMITY_MIN} responses exist. Nothing is sent automatically: HR decides when to publish, and chooses who receives it — the manager, their manager (skip-level), or both. If a manager has fewer than ${ANONYMITY_MIN} direct reports, HR delivers the themes verbally instead of publishing them in the app.`},
+  {type:'1:1 debrief', anon:false, who:'Named — a required step for every manager review.',
+   detail:'As soon as a manager submits a direct report\'s review, scheduling a 1:1 to deliver it becomes a required task. It creates a real Google Calendar invite for both people, and the manager confirms once the conversation has happened. HR can see the status of every 1:1 across the company from 1:1 Tracking.'},
 ];
 function howReviewsWorkBlurb(){
   return `<div class="hrw-note"><b>${icon('shield',14)} How reviews work:</b> Self and manager reviews are named. Company wide feedback and upward reviews are anonymous — HR reads the raw responses first and shares only a summary, once ${ANONYMITY_MIN}+ responses exist — see <a href="#" data-nav="howreviews">How reviews work</a> for the full breakdown.</div>`;
@@ -353,7 +356,7 @@ async function seedFirestoreFromOrgData(){
 let DB = {departments:[], people:[], cycles:[], settings:{companyDomain:'plei.com'},
   reviews:{self:[], manager:[], peer:[], upward:[]}, suggestions:[],
   peerCounts:[], peerAuthorship:[], peerSummaries:[],
-  upwardCounts:[], upwardSummaries:[], upwardAuthorship:[]};
+  upwardCounts:[], upwardSummaries:[], upwardAuthorship:[], oneOnOnes:[]};
 let DB_LOADED = false;
 let CURRENT_USER = null; // {uid, email}
 
@@ -380,6 +383,7 @@ function startReviewListeners(email, isHR){
     reviewListenerUnsubs.push(fdb.collection('upward_authorship').onSnapshot(snap=>{ DB.upwardAuthorship = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('upward_summaries').onSnapshot(snap=>{ DB.upwardSummaries = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('peer_summaries').onSnapshot(snap=>{ DB.peerSummaries = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
+    reviewListenerUnsubs.push(fdb.collection('oneonones').onSnapshot(snap=>{ DB.oneOnOnes = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('suggestions').onSnapshot(snap=>{ DB.suggestions = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
   } else {
     let selfMine = [], selfTeam = [];
@@ -400,6 +404,9 @@ function startReviewListeners(email, isHR){
     reviewListenerUnsubs.push(fdb.collection('upward_summaries').where('visibleToIds','array-contains',myId).onSnapshot(snap=>{ DB.upwardSummaries = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('peer_authorship').where('authorEmail','==',email).onSnapshot(snap=>{ DB.peerAuthorship = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('upward_authorship').where('authorEmail','==',email).onSnapshot(snap=>{ DB.upwardAuthorship = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
+    let o1AsEmployee = [], o1AsManager = [];
+    reviewListenerUnsubs.push(fdb.collection('oneonones').where('employeeEmail','==',email).onSnapshot(snap=>{ o1AsEmployee = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); DB.oneOnOnes = mergeById(o1AsEmployee, o1AsManager); if(DB_LOADED) render(); }, e=>console.error(e)));
+    reviewListenerUnsubs.push(fdb.collection('oneonones').where('managerEmail','==',email).onSnapshot(snap=>{ o1AsManager = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); DB.oneOnOnes = mergeById(o1AsEmployee, o1AsManager); if(DB_LOADED) render(); }, e=>console.error(e)));
   }
   // Counters are numeric-only (never expose content or authorship) and readable by everyone signed in —
   // they're what the UI uses to know when the anonymity threshold has been crossed.
@@ -476,13 +483,105 @@ function peerVisible(targetId, cycleId){ return peerCountFor(targetId, cycleId) 
 function upwardVisible(managerId, cycleId){ return upwardCountFor(managerId, cycleId) >= ANONYMITY_MIN; }
 function upwardSummaryFor(managerId, cycleId){ return DB.upwardSummaries.find(s=>s.id===managerId+'_'+cycleId); }
 function peerSummaryFor(targetId, cycleId){ return DB.peerSummaries.find(s=>s.id===targetId+'_'+cycleId); }
+function oneOnOneFor(employeeId, cycleId){ return DB.oneOnOnes.find(o=>o.id===employeeId+'_'+cycleId); }
 
 function fmtDate(d){ if(!d) return '—'; const dt=new Date(d+'T00:00:00'); return dt.toLocaleDateString('en-US',{day:'2-digit',month:'short',year:'numeric'}); }
+function fmtDateTime(iso){ if(!iso) return '—'; const dt=new Date(iso); return dt.toLocaleString('en-US',{day:'2-digit',month:'short',year:'numeric',hour:'numeric',minute:'2-digit'}); }
 
 function toast(msg){
   const t=document.getElementById('toast');
   t.textContent=msg; t.classList.add('show');
   setTimeout(()=>t.classList.remove('show'), 2200);
+}
+
+/* ============================= GOOGLE CALENDAR (1:1 scheduling) ============================= */
+const GOOGLE_OAUTH_CLIENT_ID = '340913671767-u7jmbdobludaersc48h6og1pdl03t3bs.apps.googleusercontent.com';
+const GCAL_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
+const ONE_ON_ONE_DEFAULT_MINUTES = 30;
+let gcalAccessToken = null;
+let gcalTokenExpiry = 0;
+let gcalTokenClient = null;
+function ensureGcalAuth(){
+  return new Promise((resolve, reject)=>{
+    if(gcalAccessToken && Date.now() < gcalTokenExpiry){ resolve(gcalAccessToken); return; }
+    if(typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2){
+      reject(new Error('Google sign-in library is still loading. Please try again in a moment.'));
+      return;
+    }
+    if(!gcalTokenClient){
+      gcalTokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_OAUTH_CLIENT_ID,
+        scope: GCAL_SCOPE,
+        hint: (CURRENT_USER && CURRENT_USER.email) || undefined,
+        callback: ()=>{}
+      });
+    }
+    gcalTokenClient.callback = (resp)=>{
+      if(resp && resp.access_token){
+        gcalAccessToken = resp.access_token;
+        gcalTokenExpiry = Date.now() + (((resp.expires_in||3600)-60) * 1000);
+        resolve(gcalAccessToken);
+      } else {
+        reject(new Error('Could not get permission to access Google Calendar.'));
+      }
+    };
+    gcalTokenClient.error_callback = (err)=>{
+      reject(new Error((err && err.message) || 'Google Calendar authorization was cancelled.'));
+    };
+    gcalTokenClient.requestAccessToken({prompt: ''});
+  });
+}
+async function gcalFetch(url, options){
+  const res = await fetch(url, options);
+  if(!res.ok){
+    let msg = 'Google Calendar error (' + res.status + ')';
+    try{ const err = await res.json(); if(err && err.error && err.error.message) msg = err.error.message; }catch(e){}
+    throw new Error(msg);
+  }
+  return await res.json();
+}
+async function createGcalEvent({summary, description, startISO, durationMinutes, attendeeEmails}){
+  const token = await ensureGcalAuth();
+  const start = new Date(startISO);
+  const end = new Date(start.getTime() + (durationMinutes||ONE_ON_ONE_DEFAULT_MINUTES)*60000);
+  const body = {
+    summary, description,
+    start: {dateTime: start.toISOString()},
+    end: {dateTime: end.toISOString()},
+    attendees: attendeeEmails.map(email=>({email})),
+    reminders: {useDefault:true}
+  };
+  return await gcalFetch('https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all', {
+    method:'POST',
+    headers: {'Authorization':'Bearer '+token, 'Content-Type':'application/json'},
+    body: JSON.stringify(body)
+  });
+}
+async function patchGcalEvent(eventId, {startISO, durationMinutes}){
+  const token = await ensureGcalAuth();
+  const start = new Date(startISO);
+  const end = new Date(start.getTime() + (durationMinutes||ONE_ON_ONE_DEFAULT_MINUTES)*60000);
+  return await gcalFetch('https://www.googleapis.com/calendar/v3/calendars/primary/events/'+encodeURIComponent(eventId)+'?sendUpdates=all', {
+    method:'PATCH',
+    headers: {'Authorization':'Bearer '+token, 'Content-Type':'application/json'},
+    body: JSON.stringify({start:{dateTime:start.toISOString()}, end:{dateTime:end.toISOString()}})
+  });
+}
+async function ensureOneOnOneTask(cycle, manager, employee){
+  const id = employee.id+'_'+cycle.id;
+  const ref = fdb.collection('oneonones').doc(id);
+  const snap = await ref.get();
+  if(snap.exists) return;
+  await ref.set({
+    cycleId: cycle.id,
+    employeeId: employee.id, employeeEmail: employee.email, employeeName: employee.name,
+    managerId: manager.id, managerEmail: manager.email, managerName: manager.name,
+    status: 'pending',
+    scheduledAt: null, durationMinutes: null,
+    gcalEventId: null, gcalEventLink: null,
+    completedAt: null,
+    createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+  });
 }
 
 function findReview(type, cycleId, matchFn){ return DB.reviews[type].find(r=>r.cycleId===cycleId && matchFn(r)); }
@@ -610,6 +709,7 @@ function render(){
       {id:'selftracking', icon:'userCheck', label:'Self-Review Tracking'},
       {id:'peer', icon:'users', label:'Company Wide Feedback'},
       {id:'upward', icon:'arrowUp', label:'Upward Review Summaries'},
+      {id:'oneonones', icon:'calendar', label:'1:1 Tracking'},
       {id:'reminders', icon:'bell', label:'Reminders'},
       {id:'analytics', icon:'trending', label:'Overall Analytics'},
       {id:'suggestions', icon:'bulb', label:'All Suggestions'},
@@ -690,6 +790,7 @@ function renderView(nav, cycle, person){
     case 'selftracking': return viewSelfTracking(cycle);
     case 'peer': return viewPeerHR(cycle);
     case 'upward': return viewUpwardHR(cycle);
+    case 'oneonones': return viewOneOnOneTracking(cycle);
     case 'analytics': return viewAnalytics();
     case 'suggestions': return viewSuggestions(true);
     case 'myteam': return viewMyTeam(cycle, person);
@@ -731,6 +832,7 @@ function viewHRDashboard(cycle){
     <div class="stat"><div class="num">${peerCount}</div><div class="lbl">Company wide feedback received</div></div>
     <div class="stat"><div class="num">${upwardCount}</div><div class="lbl">Upward reviews received</div></div>
     <div class="stat"><div class="num">${managers.length}</div><div class="lbl">Active managers</div></div>
+    <div class="stat"><div class="num">${DB.oneOnOnes.filter(o=>o.cycleId===cycle.id && o.status==='pending').length}</div><div class="lbl">1:1s not yet scheduled</div></div>
   </div>
   <div class="card">
     <h2>Completion by manager</h2>
@@ -801,16 +903,17 @@ async function deleteCycle(cycleId){
     fdb.collection('peer_authorship').where('cycleId','==',cycleId).get(),
     fdb.collection('upward_authorship').where('cycleId','==',cycleId).get(),
   ]);
-  const [peerCountsSnap, upwardCountsSnap, peerSummariesSnap, upwardSummariesSnap] = await Promise.all([
+  const [peerCountsSnap, upwardCountsSnap, peerSummariesSnap, upwardSummariesSnap, oneOnOnesSnap] = await Promise.all([
     fdb.collection('peer_counts').get(),
     fdb.collection('upward_counts').get(),
     fdb.collection('peer_summaries').where('cycleId','==',cycleId).get(),
     fdb.collection('upward_summaries').where('cycleId','==',cycleId).get(),
+    fdb.collection('oneonones').where('cycleId','==',cycleId).get(),
   ]);
   const peerCountsDocs = peerCountsSnap.docs.filter(d=>d.id.endsWith('_'+cycleId));
   const upwardCountsDocs = upwardCountsSnap.docs.filter(d=>d.id.endsWith('_'+cycleId));
 
-  const total = selfSnap.size + mgrSnap.size + peerSnap.size + upwardSnap.size + peerAuthSnap.size + upwardAuthSnap.size + peerCountsDocs.length + upwardCountsDocs.length + peerSummariesSnap.size + upwardSummariesSnap.size;
+  const total = selfSnap.size + mgrSnap.size + peerSnap.size + upwardSnap.size + peerAuthSnap.size + upwardAuthSnap.size + peerCountsDocs.length + upwardCountsDocs.length + peerSummariesSnap.size + upwardSummariesSnap.size + oneOnOnesSnap.size;
   const warning = total > 0
     ? `This cycle has review data attached: ${selfSnap.size} self-reviews, ${mgrSnap.size} manager reviews, ${peerSnap.size} company wide feedback entries, ${upwardSnap.size} upward reviews, plus related summaries and counters. Deleting "${c.label}" will permanently erase all of it — this cannot be undone.`
     : `"${c.label}" has no review data attached — it's safe to delete.`;
@@ -821,6 +924,7 @@ async function deleteCycle(cycleId){
     ...peerAuthSnap.docs, ...upwardAuthSnap.docs,
     ...peerCountsDocs, ...upwardCountsDocs,
     ...peerSummariesSnap.docs, ...upwardSummariesSnap.docs,
+    ...oneOnOnesSnap.docs,
   ];
   for(let i=0; i<allDocs.length; i+=400){
     const batch = fdb.batch();
@@ -1216,6 +1320,47 @@ function viewUpwardHR(cycle){
     }).join('')}
   </div>`;
 }
+function viewOneOnOneTracking(cycle){
+  const managers = managersList();
+  const all = DB.oneOnOnes.filter(o=>o.cycleId===cycle.id);
+  const pending = all.filter(o=>o.status==='pending').length;
+  const scheduled = all.filter(o=>o.status==='scheduled').length;
+  const completed = all.filter(o=>o.status==='completed').length;
+  return `<div class="card">
+    <h2>1:1 debrief tracking</h2>
+    <div class="desc">${cycle.label} — once a manager submits a direct report's review, scheduling a 1:1 to deliver it is a required step. This tracks whether that 1:1 has been scheduled and confirmed as completed, synced with each manager's Google Calendar.</div>
+    <div class="grid grid-3">
+      <div class="stat"><div class="num">${pending}</div><div class="lbl">Not scheduled yet</div></div>
+      <div class="stat"><div class="num">${scheduled}</div><div class="lbl">Scheduled</div></div>
+      <div class="stat"><div class="num">${completed}</div><div class="lbl">Completed</div></div>
+    </div>
+  </div>
+  <div class="card">
+    ${managers.map(m=>{
+      const reports = directReports(m.id);
+      if(!reports.length) return '';
+      const rows = reports.map(r=>{
+        const mgrRev = findReview('manager', cycle.id, x=>x.employeeId===r.id);
+        const mgrDone = mgrRev && mgrRev.status==='submitted';
+        const o = oneOnOneFor(r.id, cycle.id);
+        let statusCell;
+        if(!mgrDone) statusCell = '<span class="muted small">Review not submitted yet</span>';
+        else if(!o || o.status==='pending') statusCell = '<span class="badge bad">Not scheduled</span>';
+        else if(o.status==='scheduled') statusCell = `<span class="badge warn">Scheduled — ${fmtDateTime(o.scheduledAt)}</span>`;
+        else statusCell = `<span class="badge ok">${icon('check',11)} Completed — ${fmtDate((o.completedAt||'').slice(0,10))}</span>`;
+        return `<tr>
+          <td><div class="person-cell"><div class="avatar">${initials(r.name)}</div>${r.name}</div></td>
+          <td class="muted small">${r.title}</td>
+          <td>${statusCell}</td>
+        </tr>`;
+      }).join('');
+      return `<div style="margin-bottom:22px;">
+        <div class="person-cell" style="margin-bottom:8px;"><div class="avatar">${initials(m.name)}</div><b>${m.name}</b><span class="tag">${m.department}</span></div>
+        <table><thead><tr><th>Direct report</th><th>Title</th><th>1:1 status</th></tr></thead><tbody>${rows}</tbody></table>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
 function viewAnalytics(){
   const depts = DB.departments;
 
@@ -1342,7 +1487,7 @@ function viewMyTeam(cycle, person){
     </div>
     <div class="bar-wrap" style="margin-bottom:16px;"><div class="bar-fill" style="width:${pct}%"></div></div>
     <table>
-      <thead><tr><th>Person</th><th>Title</th><th>Self-review</th><th>Manager review</th><th>Company wide feedback</th><th>Upward feedback</th><th></th></tr></thead>
+      <thead><tr><th>Person</th><th>Title</th><th>Self-review</th><th>Manager review</th><th>Company wide feedback</th><th>Upward feedback</th><th>1:1 debrief</th><th></th></tr></thead>
       <tbody>
         ${reports.map(r=>{
           const selfRev = findReview('self',cycle.id,x=>x.employeeId===r.id);
@@ -1352,6 +1497,12 @@ function viewMyTeam(cycle, person){
           const peerSummary = peerSummaryFor(r.id, cycle.id);
           const isManager = hasReports(r.id);
           const upwardSummary = isManager ? upwardSummaryFor(r.id, cycle.id) : null;
+          const oneOnOne = oneOnOneFor(r.id, cycle.id);
+          let oneOnOneCell;
+          if(!done) oneOnOneCell = '<span class="muted small">—</span>';
+          else if(!oneOnOne || oneOnOne.status==='pending') oneOnOneCell = `<span class="badge bad">Required</span> <button class="btn ghost sm" data-schedule-oneonone="${r.id}">Schedule</button>`;
+          else if(oneOnOne.status==='scheduled') oneOnOneCell = `<span class="badge warn">${fmtDateTime(oneOnOne.scheduledAt)}</span> <button class="btn ghost sm" data-schedule-oneonone="${r.id}">Reschedule</button> <button class="btn ghost sm" data-complete-oneonone="${oneOnOne.id}">Mark done</button>`;
+          else oneOnOneCell = `<span class="badge ok">${icon('check',11)} Done ${fmtDate((oneOnOne.completedAt||'').slice(0,10))}</span>`;
           return `<tr>
             <td><div class="person-cell"><div class="avatar">${initials(r.name)}</div>${r.name}</div></td>
             <td class="muted small">${r.title}</td>
@@ -1359,6 +1510,7 @@ function viewMyTeam(cycle, person){
             <td>${done?'<span class="badge ok">Completed</span>':'<span class="badge bad">Pending</span>'}</td>
             <td>${peerSummary&&peerSummary.published?`<button class="btn ghost sm" data-view-peer-summary="${r.id}">View summary</button>`:'<span class="badge neutral">None yet</span>'}</td>
             <td>${!isManager?'<span class="muted small">—</span>':(upwardSummary&&upwardSummary.published?`<button class="btn ghost sm" data-view-upward-summary="${r.id}">View summary</button>`:'<span class="badge neutral">None yet</span>')}</td>
+            <td>${oneOnOneCell}</td>
             <td><button class="btn sm" data-fill-manager="${r.id}">${done?'View / edit':'Complete review'}</button></td>
           </tr>`;
         }).join('')}
@@ -1468,12 +1620,14 @@ const EMPLOYEE_STEPS = [
   {title:'Give company wide feedback (optional, anytime)', body:'Pick a department, then a person, and leave anonymous feedback about anyone at Plei — positive or a concern. Not required, and nobody needs to ask you first. It goes to HR only — the person never sees raw feedback or who wrote it.'},
   {title:'Review your manager', body:'Give feedback on your manager’s support and communication under Review My Manager. Anonymous — it goes to HR first, never straight to your manager.'},
   {title:'Get your manager’s review', body:'Your manager writes about your performance. Once both are in, you see the combined self + manager report ahead of your 1:1.'},
+  {title:'Meet for your 1:1', body:'Once your manager submits your review, they’ll schedule a 1:1 with you on Google Calendar to walk through it together — you’ll get a real calendar invite. Check My Profile for the date.'},
   {title:'See feedback about you', body:'If colleagues leave company wide feedback about you, HR reviews it and, once there are enough responses, publishes a summary to My Profile — never the raw quotes.'},
   {title:'Acknowledge', body:'After your 1:1, confirm you’ve seen your review from My Profile. This is what creates the audit trail HR needs.'},
   {title:'Cycle closes', body:'Once HR locks the cycle, all reviews become read-only — nothing can be edited or submitted late.'},
 ];
 const MANAGER_STEPS = [
   {title:'Write manager reviews', body:'Evaluate each direct report. They’ll see this next to their self-review before your 1:1 — leave enough time before the deadline.'},
+  {title:'Schedule the 1:1 debrief', body:'Required as soon as you submit a review: schedule the 1:1 from My Team. It creates a real Google Calendar invite for you and your report, and you confirm once you\'ve had the conversation.'},
   {title:'Track your team', body:'Use My Team to see who on your team is behind on their self-review, so nobody surprises you at the deadline.'},
   {title:'Receive upward feedback', body:'Once HR publishes a summary — only after at least 3 responses — check My Upward Feedback for aggregate scores and HR-written themes. You’ll never see raw quotes or who wrote what.'},
   {title:'See company wide feedback about your team', body:'If colleagues leave feedback about one of your reports, HR reviews it and, once there are enough responses, publishes a summary you can see from My Team. You’ll never see the raw quotes or who wrote them.'},
@@ -1723,6 +1877,26 @@ function viewMyReviews(cycle, person){
     </div>
   </div>
   <div class="card">
+    <h2>My 1:1 — review feedback conversation</h2>
+    <div class="desc">${cycle.label} — a short conversation with your manager to walk through your review together. This is a required step every cycle.</div>
+    ${(()=>{
+      const myOneOnOne = oneOnOneFor(person.id, cycle.id);
+      if(!mgrRev || mgrRev.status!=='submitted'){
+        return '<div class="empty">This gets scheduled once your manager submits your review.</div>';
+      }
+      if(!myOneOnOne || myOneOnOne.status==='pending'){
+        return '<div class="login-note">Your manager still needs to schedule this on Google Calendar — you\'ll get a calendar invite once they do.</div>';
+      }
+      if(myOneOnOne.status==='scheduled'){
+        return `<div class="row" style="justify-content:space-between;">
+          <span class="badge warn">${icon('calendar',11)} ${fmtDateTime(myOneOnOne.scheduledAt)}</span>
+          ${myOneOnOne.gcalEventLink?`<a class="btn ghost sm" href="${myOneOnOne.gcalEventLink}" target="_blank" rel="noopener">View in Google Calendar</a>`:''}
+        </div>`;
+      }
+      return `<span class="badge ok">${icon('check',11)} Completed ${fmtDate((myOneOnOne.completedAt||'').slice(0,10))}</span>`;
+    })()}
+  </div>
+  <div class="card">
     <h2>Add cycle deadline to my calendar</h2>
     <div class="desc">Deadline: ${fmtDate(cycle.endDate)}</div>
     <button class="btn ghost sm" id="downloadMyIcs">📅 Download .ics</button>
@@ -1906,6 +2080,14 @@ function bindViewEvents(role, nav, cycle, person){
   document.querySelectorAll('[data-view-upward-summary]').forEach(el=>el.addEventListener('click', ()=>{
     upwardSummaryModal(cycle, getPerson(el.dataset.viewUpwardSummary));
   }));
+  document.querySelectorAll('[data-schedule-oneonone]').forEach(el=>el.addEventListener('click', ()=>{
+    oneOnOneScheduleModal(cycle, person, getPerson(el.dataset.scheduleOneonone));
+  }));
+  document.querySelectorAll('[data-complete-oneonone]').forEach(el=>el.addEventListener('click', async ()=>{
+    if(!confirm('Confirm this 1:1 meeting has taken place?')) return;
+    await fdb.collection('oneonones').doc(el.dataset.completeOneonone).set({status:'completed', completedAt:new Date().toISOString(), updatedAt:new Date().toISOString()}, {merge:true});
+    toast('Marked as completed'); render();
+  }));
 
   // Self review form
   bindSelfFormEvents(cycle, person);
@@ -1980,6 +2162,64 @@ function bindViewEvents(role, nav, cycle, person){
   }));
 }
 
+function oneOnOneScheduleModal(cycle, manager, employee){
+  const id = employee.id+'_'+cycle.id;
+  const existing = oneOnOneFor(employee.id, cycle.id);
+  const defaultDT = existing && existing.scheduledAt ? existing.scheduledAt.slice(0,16) : '';
+  const modalHtml = `<div class="modal-bg no-print" id="oneOnOneModalBg">
+    <div class="modal">
+      <span class="close-x" id="closeOneOnOneModal">✕</span>
+      <h3>Schedule 1:1 — ${employee.name}</h3>
+      <div class="desc">${cycle.label} · This creates a real Google Calendar event on your calendar and sends an invite to ${employee.name} (${employee.email}).</div>
+      <div class="field"><label>Date & time</label><input type="datetime-local" id="o1_datetime" value="${defaultDT}"></div>
+      <div class="field"><label>Duration (minutes)</label><input type="number" id="o1_duration" value="${existing&&existing.durationMinutes?existing.durationMinutes:ONE_ON_ONE_DEFAULT_MINUTES}" min="15" step="5"></div>
+      <div id="o1_error" class="login-note" style="display:none;"></div>
+      <button class="btn" id="saveOneOnOneBtn" style="width:100%;">${existing&&existing.status!=='pending'?'Update & resend invite':'Schedule & send invite'}</button>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+  document.getElementById('closeOneOnOneModal').addEventListener('click', ()=>document.getElementById('oneOnOneModalBg').remove());
+  document.getElementById('saveOneOnOneBtn').addEventListener('click', async ()=>{
+    const dtVal = document.getElementById('o1_datetime').value;
+    const dur = parseInt(document.getElementById('o1_duration').value, 10) || ONE_ON_ONE_DEFAULT_MINUTES;
+    const errEl = document.getElementById('o1_error');
+    errEl.style.display = 'none';
+    if(!dtVal){ errEl.textContent = 'Please pick a date and time.'; errEl.style.display = 'block'; return; }
+    const btn = document.getElementById('saveOneOnOneBtn');
+    const originalLabel = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Connecting to Google Calendar…';
+    try{
+      const startISO = new Date(dtVal).toISOString();
+      let gcalEvent;
+      if(existing && existing.gcalEventId){
+        gcalEvent = await patchGcalEvent(existing.gcalEventId, {startISO, durationMinutes:dur});
+      } else {
+        gcalEvent = await createGcalEvent({
+          summary: '1:1 — Review feedback: ' + manager.name + ' & ' + employee.name,
+          description: 'Performance review feedback conversation for ' + cycle.label + '. Scheduled from Plei Performance.',
+          startISO, durationMinutes: dur,
+          attendeeEmails: [manager.email, employee.email]
+        });
+      }
+      await fdb.collection('oneonones').doc(id).set({
+        cycleId: cycle.id,
+        employeeId: employee.id, employeeEmail: employee.email, employeeName: employee.name,
+        managerId: manager.id, managerEmail: manager.email, managerName: manager.name,
+        status: 'scheduled',
+        scheduledAt: startISO, durationMinutes: dur,
+        gcalEventId: gcalEvent.id, gcalEventLink: gcalEvent.htmlLink,
+        updatedAt: new Date().toISOString()
+      }, {merge:true});
+      document.getElementById('oneOnOneModalBg').remove();
+      toast('1:1 scheduled — invite sent'); render();
+    }catch(e){
+      btn.disabled = false; btn.textContent = originalLabel;
+      errEl.textContent = e.message || 'Could not schedule the meeting. Please try again.';
+      errEl.style.display = 'block';
+    }
+  });
+}
+
 function bindManagerFormEvents(cycle, manager, employee){
   const host = document.getElementById('managerFormHost');
   const existing = findReview('manager', cycle.id, x=>x.employeeId===employee.id) || {ratings:{}, answers:{}};
@@ -2004,7 +2244,9 @@ function bindManagerFormEvents(cycle, manager, employee){
   host.querySelector('#submitManagerReview')?.addEventListener('click', async ()=>{
     const missing = MANAGER_RATINGS.filter(f=>!ratings[f.key]);
     if(missing.length){ alert('Please complete all ratings before submitting.'); return; }
-    await upsert('submitted'); toast('Review submitted'); render();
+    await upsert('submitted');
+    await ensureOneOnOneTask(cycle, manager, employee);
+    toast('Review submitted — don\'t forget to schedule the 1:1 debrief'); render();
   });
   host.querySelector('#saveDraftManagerReview')?.addEventListener('click', async ()=>{ await upsert('draft'); toast('Draft saved'); });
 }
