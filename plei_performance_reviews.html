@@ -204,8 +204,8 @@ const HOW_REVIEWS_WORK = [
    detail:'Your manager evaluates your performance. You receive the combined report (your self-review + their review) to discuss in your 1:1.'},
   {type:'Company wide feedback', anon:true, who:'Anonymous — HR reads the raw feedback first; the person and their manager only ever see a summary HR writes, never the original quotes.',
    detail:`Anyone at Plei can leave feedback about any colleague, anytime — entirely optional, no nomination or request needed. Use it to share something positive, or to flag a concern. Raw feedback goes to HR only. Once at least ${ANONYMITY_MIN} pieces of feedback exist about someone, HR reviews it and publishes a summary to that person and their manager — never the raw quotes, so no one can guess who wrote what.`},
-  {type:'Upward review', anon:true, who:'Anonymous — HR reviews it first; your manager never sees raw responses.',
-   detail:`You review your own manager. HR reads the raw feedback, then shares aggregate scores and HR-summarized themes with the manager — only once at least ${ANONYMITY_MIN} responses exist. If a manager has fewer than ${ANONYMITY_MIN} direct reports, HR delivers the themes verbally instead of publishing them in the app.`},
+  {type:'Upward review', anon:true, who:'Anonymous — HR reviews it first; raw responses are never shared with the manager.',
+   detail:`You review your own manager. HR reads all the raw feedback, analyzes it, and writes an overall summary and evaluation — only once at least ${ANONYMITY_MIN} responses exist. Nothing is sent automatically: HR decides when to publish, and chooses who receives it — the manager, their manager (skip-level), or both. If a manager has fewer than ${ANONYMITY_MIN} direct reports, HR delivers the themes verbally instead of publishing them in the app.`},
 ];
 function howReviewsWorkBlurb(){
   return `<div class="hrw-note"><b>${icon('shield',14)} How reviews work:</b> Self and manager reviews are named. Company wide feedback and upward reviews are anonymous — HR reads the raw responses first and shares only a summary, once ${ANONYMITY_MIN}+ responses exist — see <a href="#" data-nav="howreviews">How reviews work</a> for the full breakdown.</div>`;
@@ -397,7 +397,7 @@ function startReviewListeners(email, isHR){
     DB.reviews.upward = [];
     // Suggestions are HR-only — never loaded into non-HR clients, even for the person's own submission.
     DB.suggestions = [];
-    reviewListenerUnsubs.push(fdb.collection('upward_summaries').where('managerId','==',myId).onSnapshot(snap=>{ DB.upwardSummaries = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
+    reviewListenerUnsubs.push(fdb.collection('upward_summaries').where('visibleToIds','array-contains',myId).onSnapshot(snap=>{ DB.upwardSummaries = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('peer_authorship').where('authorEmail','==',email).onSnapshot(snap=>{ DB.peerAuthorship = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('upward_authorship').where('authorEmail','==',email).onSnapshot(snap=>{ DB.upwardAuthorship = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
   }
@@ -1175,13 +1175,15 @@ function viewUpwardHR(cycle){
   const managers = managersList();
   return `<div class="card">
     <h2>Upward reviews (feedback on managers)</h2>
-    <div class="desc">${cycle.label} — anonymous feedback from employees about their managers. Raw responses are for HR only; publish a summary below to share aggregate scores and themes with the manager.</div>
+    <div class="desc">${cycle.label} — anonymous feedback from employees about their managers. All raw responses go to HR only and are never shared with the manager. Review it, write an overall summary and evaluation, and publish it whenever you're ready — nothing is sent automatically, and you choose who receives it.</div>
     ${managers.map(m=>{
       const list = DB.reviews.upward.filter(r=>r.cycleId===cycle.id && r.managerId===m.id);
       const avgScore = avg(list.map(ratingAvgOfReview).filter(Boolean));
       const teamSize = directReports(m.id).length;
       const summary = upwardSummaryFor(m.id, cycle.id);
       const meetsMin = list.length >= ANONYMITY_MIN;
+      const skipMgr = m.managerId ? getPerson(m.managerId) : null;
+      const curRecipients = summary ? (summary.recipients || 'manager') : 'manager';
       return `<div style="margin-bottom:22px;">
         <div class="row" style="justify-content:space-between;">
           <div class="person-cell"><div class="avatar">${initials(m.name)}</div><b>${m.name}</b><span class="tag">${m.department}</span></div>
@@ -1196,12 +1198,19 @@ function viewUpwardHR(cycle){
         </div>`).join('')}
         <div class="divider"></div>
         ${!meetsMin ? `<div class="login-note">${teamSize<ANONYMITY_MIN?`This manager has fewer than ${ANONYMITY_MIN} direct reports — deliver themes verbally instead of publishing in the app.`:`Below the ${ANONYMITY_MIN}-response minimum — nothing can be published yet.`}</div>` : `
-        <div class="field"><label>Themes to share with ${m.name}</label><div class="hint">Summarize the raw feedback above in your own words — this is what the manager will see, never the raw quotes.</div>
+        <div class="field"><label>Overall summary and evaluation for ${m.name}</label><div class="hint">Analyze the raw feedback above and write your own summary — this is what gets sent, never the raw quotes.</div>
           <textarea data-summary-themes="${m.id}">${summary?summary.themes||'':''}</textarea>
         </div>
+        <div class="field"><label>Who should receive this?</label>
+          <select data-summary-recipients="${m.id}">
+            <option value="manager" ${curRecipients==='manager'?'selected':''}>${m.name} only</option>
+            ${skipMgr?`<option value="manager_and_skip" ${curRecipients==='manager_and_skip'?'selected':''}>${m.name} + ${skipMgr.name} (their manager)</option>`:''}
+            ${skipMgr?`<option value="skip_only" ${curRecipients==='skip_only'?'selected':''}>${skipMgr.name} only (their manager)</option>`:''}
+          </select>
+        </div>
         <div class="row">
-          <button class="btn sm" data-publish-summary="${m.id}">${summary&&summary.published?'Update published summary':'Publish summary to manager'}</button>
-          ${summary&&summary.published?`<span class="badge ok">${icon('check',11)} Published ${fmtDate((summary.publishedAt||'').slice(0,10))}</span>`:''}
+          <button class="btn sm" data-publish-summary="${m.id}">${summary&&summary.published?'Update & send':'Send summary'}</button>
+          ${summary&&summary.published?`<span class="badge ok">${icon('check',11)} Sent ${fmtDate((summary.publishedAt||'').slice(0,10))}</span>`:''}
         </div>`}
       </div>`;
     }).join('')}
@@ -1333,7 +1342,7 @@ function viewMyTeam(cycle, person){
     </div>
     <div class="bar-wrap" style="margin-bottom:16px;"><div class="bar-fill" style="width:${pct}%"></div></div>
     <table>
-      <thead><tr><th>Person</th><th>Title</th><th>Self-review</th><th>Manager review</th><th>Company wide feedback</th><th></th></tr></thead>
+      <thead><tr><th>Person</th><th>Title</th><th>Self-review</th><th>Manager review</th><th>Company wide feedback</th><th>Upward feedback</th><th></th></tr></thead>
       <tbody>
         ${reports.map(r=>{
           const selfRev = findReview('self',cycle.id,x=>x.employeeId===r.id);
@@ -1341,12 +1350,15 @@ function viewMyTeam(cycle, person){
           const done = mgrRev && mgrRev.status==='submitted';
           const selfSubmitted = selfRev && selfRev.status==='submitted';
           const peerSummary = peerSummaryFor(r.id, cycle.id);
+          const isManager = hasReports(r.id);
+          const upwardSummary = isManager ? upwardSummaryFor(r.id, cycle.id) : null;
           return `<tr>
             <td><div class="person-cell"><div class="avatar">${initials(r.name)}</div>${r.name}</div></td>
             <td class="muted small">${r.title}</td>
             <td>${selfSubmitted?`<span class="badge ok">Submitted</span> <button class="btn ghost sm" data-view-self="${r.id}">Read</button>`:'<span class="badge neutral">Pending</span>'}</td>
             <td>${done?'<span class="badge ok">Completed</span>':'<span class="badge bad">Pending</span>'}</td>
             <td>${peerSummary&&peerSummary.published?`<button class="btn ghost sm" data-view-peer-summary="${r.id}">View summary</button>`:'<span class="badge neutral">None yet</span>'}</td>
+            <td>${!isManager?'<span class="muted small">—</span>':(upwardSummary&&upwardSummary.published?`<button class="btn ghost sm" data-view-upward-summary="${r.id}">View summary</button>`:'<span class="badge neutral">None yet</span>')}</td>
             <td><button class="btn sm" data-fill-manager="${r.id}">${done?'View / edit':'Complete review'}</button></td>
           </tr>`;
         }).join('')}
@@ -1384,6 +1396,21 @@ function peerSummaryModal(cycle, targetPerson){
   </div></div>`;
   document.body.insertAdjacentHTML('beforeend', modalHtml);
   document.getElementById('closePeerSummaryModal').addEventListener('click', ()=>document.getElementById('peerSummaryModalBg').remove());
+}
+function upwardSummaryModal(cycle, managerPerson){
+  const summary = upwardSummaryFor(managerPerson.id, cycle.id);
+  if(!summary || !summary.published){ return; }
+  const modalHtml = `<div class="modal-bg no-print" id="upwardSummaryModalBg"><div class="modal" style="width:620px;">
+    <span class="close-x" id="closeUpwardSummaryModal">✕</span>
+    <h3>Upward feedback — ${managerPerson.name}</h3>
+    <div class="desc">${cycle.label} · ${summary.responseCount} anonymous responses from ${managerPerson.name}'s team, reviewed and summarized by HR. Raw quotes are never shown.</div>
+    <div class="grid grid-3" style="margin:14px 0;">
+      ${UPWARD_RATINGS.map(f=>`<div class="stat"><div class="num">${summary.avgRatings&&summary.avgRatings[f.key]?summary.avgRatings[f.key].toFixed(1):'—'}</div><div class="lbl">${f.label}</div></div>`).join('')}
+    </div>
+    <div class="quote-card"><div class="meta">Summary from HR</div><p style="margin:0;white-space:pre-wrap;">${summary.themes||'—'}</p></div>
+  </div></div>`;
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+  document.getElementById('closeUpwardSummaryModal').addEventListener('click', ()=>document.getElementById('upwardSummaryModalBg').remove());
 }
 
 function viewManagerReviewForm(cycle, manager, employee){
@@ -1490,18 +1517,18 @@ function viewMyTeamFeedback(cycle, person){
   const teamSize = directReports(person.id).length;
   if(!summary || !summary.published){
     return `<div class="card"><h2>My upward feedback</h2>
-      <div class="desc">${cycle.label} — anonymous feedback your team submitted about you as a manager.</div>
+      <div class="desc">${cycle.label} — anonymous feedback your team submitted about you as a manager. Raw responses go to HR only; HR reviews everything and sends you an overall summary when it's ready.</div>
       ${howReviewsWorkBlurb()}
-      <div class="empty">${teamSize<ANONYMITY_MIN?`Not available in-app — your team is smaller than the ${ANONYMITY_MIN}-response minimum needed to keep responses anonymous. HR will share themes with you directly.`:"HR hasn't published a summary for this cycle yet."}</div>
+      <div class="empty">${teamSize<ANONYMITY_MIN?`Not available in-app — your team is smaller than the ${ANONYMITY_MIN}-response minimum needed to keep responses anonymous. HR will share themes with you directly.`:"HR hasn't sent a summary for this cycle yet."}</div>
     </div>`;
   }
   return `<div class="card"><h2>My upward feedback</h2>
-    <div class="desc">${cycle.label} — ${summary.responseCount} anonymous responses from your team, summarized by HR.</div>
+    <div class="desc">${cycle.label} — ${summary.responseCount} anonymous responses from your team, reviewed and summarized by HR.</div>
     ${howReviewsWorkBlurb()}
     <div class="grid grid-3" style="margin-bottom:16px;">
       ${UPWARD_RATINGS.map(f=>`<div class="stat"><div class="num">${summary.avgRatings&&summary.avgRatings[f.key]?summary.avgRatings[f.key].toFixed(1):'—'}</div><div class="lbl">${f.label}</div></div>`).join('')}
     </div>
-    <div class="quote-card"><div class="meta">Themes from HR</div><p style="margin:0;white-space:pre-wrap;">${summary.themes||'—'}</p></div>
+    <div class="quote-card"><div class="meta">Summary from HR</div><p style="margin:0;white-space:pre-wrap;">${summary.themes||'—'}</p></div>
   </div>`;
 }
 
@@ -1876,6 +1903,9 @@ function bindViewEvents(role, nav, cycle, person){
   document.querySelectorAll('[data-view-peer-summary]').forEach(el=>el.addEventListener('click', ()=>{
     peerSummaryModal(cycle, getPerson(el.dataset.viewPeerSummary));
   }));
+  document.querySelectorAll('[data-view-upward-summary]').forEach(el=>el.addEventListener('click', ()=>{
+    upwardSummaryModal(cycle, getPerson(el.dataset.viewUpwardSummary));
+  }));
 
   // Self review form
   bindSelfFormEvents(cycle, person);
@@ -1911,16 +1941,25 @@ function bindViewEvents(role, nav, cycle, person){
   }));
   document.querySelectorAll('[data-publish-summary]').forEach(el=>el.addEventListener('click', async ()=>{
     const managerId = el.dataset.publishSummary;
+    const manager = getPerson(managerId);
     const cycle = getCycle(STATE.activeCycleId);
     const list = DB.reviews.upward.filter(r=>r.cycleId===cycle.id && r.managerId===managerId);
     const avgRatings = {};
     UPWARD_RATINGS.forEach(f=>{ avgRatings[f.key] = avg(list.map(r=>r.ratings[f.key]).filter(Boolean)); });
     const themesEl = document.querySelector(`[data-summary-themes="${managerId}"]`);
     const themes = themesEl ? themesEl.value : '';
+    const recipientsEl = document.querySelector(`[data-summary-recipients="${managerId}"]`);
+    const recipients = recipientsEl ? recipientsEl.value : 'manager';
+    const skipManagerId = manager.managerId || null;
+    let visibleToIds;
+    if(recipients==='skip_only' && skipManagerId) visibleToIds = [skipManagerId];
+    else if(recipients==='manager_and_skip' && skipManagerId) visibleToIds = [managerId, skipManagerId];
+    else visibleToIds = [managerId];
     await fdb.collection('upward_summaries').doc(managerId+'_'+cycle.id).set({
-      managerId, cycleId:cycle.id, avgRatings, themes, responseCount:list.length, published:true, publishedAt:new Date().toISOString()
+      managerId, cycleId:cycle.id, skipManagerId, recipients, visibleToIds,
+      avgRatings, themes, responseCount:list.length, published:true, publishedAt:new Date().toISOString()
     }, {merge:true});
-    toast('Summary published to manager'); render();
+    toast('Summary sent'); render();
   }));
   document.querySelectorAll('[data-publish-peer-summary]').forEach(el=>el.addEventListener('click', async ()=>{
     const targetId = el.dataset.publishPeerSummary;
