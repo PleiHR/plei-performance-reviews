@@ -567,6 +567,70 @@ async function patchGcalEvent(eventId, {startISO, durationMinutes}){
     body: JSON.stringify({start:{dateTime:start.toISOString()}, end:{dateTime:end.toISOString()}})
   });
 }
+const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.send';
+let gmailAccessToken = null;
+let gmailTokenExpiry = 0;
+let gmailTokenClient = null;
+function ensureGmailAuth(){
+  return new Promise((resolve, reject)=>{
+    if(gmailAccessToken && Date.now() < gmailTokenExpiry){ resolve(gmailAccessToken); return; }
+    if(typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2){
+      reject(new Error('Google sign-in library is still loading. Please try again in a moment.'));
+      return;
+    }
+    if(!gmailTokenClient){
+      gmailTokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_OAUTH_CLIENT_ID,
+        scope: GMAIL_SCOPE,
+        hint: (CURRENT_USER && CURRENT_USER.email) || undefined,
+        callback: ()=>{}
+      });
+    }
+    gmailTokenClient.callback = (resp)=>{
+      if(resp && resp.access_token){
+        gmailAccessToken = resp.access_token;
+        gmailTokenExpiry = Date.now() + (((resp.expires_in||3600)-60) * 1000);
+        resolve(gmailAccessToken);
+      } else {
+        reject(new Error('Could not get permission to send email from your Gmail account.'));
+      }
+    };
+    gmailTokenClient.error_callback = (err)=>{
+      reject(new Error((err && err.message) || 'Gmail authorization was cancelled.'));
+    };
+    gmailTokenClient.requestAccessToken({prompt: ''});
+  });
+}
+function b64urlEncodeUnicode(str){
+  const utf8Bytes = new TextEncoder().encode(str);
+  let binary = '';
+  utf8Bytes.forEach(b=>{ binary += String.fromCharCode(b); });
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+async function sendGmail({to, subject, bodyHtml}){
+  const token = await ensureGmailAuth();
+  const fromName = (CURRENT_USER && CURRENT_USER.name) || 'Plei Performance';
+  const messageLines = [
+    'To: ' + to,
+    'Subject: =?UTF-8?B?' + btoa(unescape(encodeURIComponent(subject))) + '?=',
+    'MIME-Version: 1.0',
+    'Content-Type: text/html; charset=UTF-8',
+    '',
+    bodyHtml
+  ];
+  const raw = b64urlEncodeUnicode(messageLines.join('\r\n'));
+  const res = await fetch('https://www.googleapis.com/gmail/v1/users/me/messages/send', {
+    method: 'POST',
+    headers: {'Authorization':'Bearer '+token, 'Content-Type':'application/json'},
+    body: JSON.stringify({raw})
+  });
+  if(!res.ok){
+    let msg = 'Gmail error (' + res.status + ')';
+    try{ const err = await res.json(); if(err && err.error && err.error.message) msg = err.error.message; }catch(e){}
+    throw new Error(msg);
+  }
+  return await res.json();
+}
 async function ensureOneOnOneTask(cycle, manager, employee){
   const id = employee.id+'_'+cycle.id;
   const ref = fdb.collection('oneonones').doc(id);
@@ -2141,6 +2205,19 @@ function bindViewEvents(role, nav, cycle, person){
       managerId, cycleId:cycle.id, skipManagerId, recipients, visibleToIds,
       avgRatings, themes, responseCount:list.length, published:true, publishedAt:new Date().toISOString()
     }, {merge:true});
+    try{
+      const recipientPeople = visibleToIds.map(pid=>getPerson(pid)).filter(p=>p && p.email);
+      for(const rp of recipientPeople){
+        await sendGmail({
+          to: rp.email,
+          subject: 'Upward feedback summary ready — ' + cycle.label,
+          bodyHtml: '<p>Hi ' + rp.name + ',</p>' +
+            '<p>HR has published an upward feedback summary for <b>' + manager.name + '</b> (' + cycle.label + ') in Plei Performance.</p>' +
+            '<p>You can view it under the Upward Feedback section in the app.</p>' +
+            '<p>— Plei Performance HR</p>'
+        });
+      }
+    }catch(e){ console.error('sendGmail (upward summary published) failed:', e); }
     toast('Summary sent'); render();
   }));
   document.querySelectorAll('[data-publish-peer-summary]').forEach(el=>el.addEventListener('click', async ()=>{
@@ -2246,6 +2323,17 @@ function bindManagerFormEvents(cycle, manager, employee){
     if(missing.length){ alert('Please complete all ratings before submitting.'); return; }
     await upsert('submitted');
     await ensureOneOnOneTask(cycle, manager, employee);
+    try{
+      await sendGmail({
+        to: employee.email,
+        subject: 'Your ' + cycle.label + ' review is ready',
+        bodyHtml: '<p>Hi ' + employee.name + ',</p>' +
+          '<p><b>' + manager.name + '</b> has submitted your manager review for <b>' + cycle.label + '</b> in Plei Performance.</p>' +
+          '<p>Your manager will reach out to schedule a short 1:1 to walk through it together — this is a required step every cycle.</p>' +
+          '<p>You can check your review and the 1:1 status any time under My Profile in Plei Performance.</p>' +
+          '<p>— Plei Performance</p>'
+      });
+    }catch(e){ console.error('sendGmail (review submitted) failed:', e); }
     toast('Review submitted — don\'t forget to schedule the 1:1 debrief'); render();
   });
   host.querySelector('#saveDraftManagerReview')?.addEventListener('click', async ()=>{ await upsert('draft'); toast('Draft saved'); });
