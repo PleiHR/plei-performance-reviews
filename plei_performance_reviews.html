@@ -355,7 +355,7 @@ async function seedFirestoreFromOrgData(){
 let DB = {departments:[], people:[], cycles:[], settings:{companyDomain:'plei.com'},
   reviews:{self:[], manager:[], peer:[], upward:[]}, suggestions:[],
   peerCounts:[], peerAuthorship:[], peerSummaries:[],
-  upwardCounts:[], upwardSummaries:[], upwardAuthorship:[], oneOnOnes:[]};
+  upwardCounts:[], upwardSummaries:[], upwardAuthorship:[], oneOnOnes:[], calendarSync:[]};
 let DB_LOADED = false;
 let CURRENT_USER = null; // {uid, email}
 
@@ -383,6 +383,7 @@ function startReviewListeners(email, isHR){
     reviewListenerUnsubs.push(fdb.collection('upward_summaries').onSnapshot(snap=>{ DB.upwardSummaries = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('peer_summaries').onSnapshot(snap=>{ DB.peerSummaries = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('oneonones').onSnapshot(snap=>{ DB.oneOnOnes = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
+    reviewListenerUnsubs.push(fdb.collection('calendarSync').onSnapshot(snap=>{ DB.calendarSync = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('suggestions').onSnapshot(snap=>{ DB.suggestions = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
   } else {
     let selfMine = [], selfTeam = [];
@@ -406,6 +407,7 @@ function startReviewListeners(email, isHR){
     let o1AsEmployee = [], o1AsManager = [];
     reviewListenerUnsubs.push(fdb.collection('oneonones').where('employeeEmail','==',email).onSnapshot(snap=>{ o1AsEmployee = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); DB.oneOnOnes = mergeById(o1AsEmployee, o1AsManager); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('oneonones').where('managerEmail','==',email).onSnapshot(snap=>{ o1AsManager = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); DB.oneOnOnes = mergeById(o1AsEmployee, o1AsManager); if(DB_LOADED) render(); }, e=>console.error(e)));
+    reviewListenerUnsubs.push(fdb.collection('calendarSync').where('personEmail','==',email).onSnapshot(snap=>{ DB.calendarSync = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
   }
   // Counters are numeric-only (never expose content or authorship) and readable by everyone signed in —
   // they're what the UI uses to know when the anonymity threshold has been crossed.
@@ -483,6 +485,7 @@ function upwardVisible(managerId, cycleId){ return upwardCountFor(managerId, cyc
 function upwardSummaryFor(managerId, cycleId){ return DB.upwardSummaries.find(s=>s.id===managerId+'_'+cycleId); }
 function peerSummaryFor(targetId, cycleId){ return DB.peerSummaries.find(s=>s.id===targetId+'_'+cycleId); }
 function oneOnOneFor(employeeId, cycleId){ return DB.oneOnOnes.find(o=>o.id===employeeId+'_'+cycleId); }
+function calendarSyncFor(personId, cycleId){ return DB.calendarSync.find(c=>c.id===personId+'_'+cycleId); }
 
 function fmtDate(d){ if(!d) return '—'; const dt=new Date(d+'T00:00:00'); return dt.toLocaleDateString('en-US',{day:'2-digit',month:'short',year:'numeric'}); }
 function fmtDateTime(iso){ if(!iso) return '—'; const dt=new Date(iso); return dt.toLocaleString('en-US',{day:'2-digit',month:'short',year:'numeric',hour:'numeric',minute:'2-digit'}); }
@@ -647,6 +650,60 @@ async function ensureOneOnOneTask(cycle, manager, employee){
   });
 }
 
+// Adds the cycle's start and deadline dates to the signed-in person's own Google Calendar.
+// silent=true (used automatically at login) only proceeds if a token can be obtained without
+// showing any prompt/popup — i.e. the person already granted Calendar access before, from
+// scheduling a 1:1 or from clicking "Add to Google Calendar" once. silent=false (used by that
+// manual button, always triggered by a real click) is allowed to show the Google consent popup.
+async function syncCycleCalendarForPerson(person, cycle, silent){
+  const id = person.id+'_'+cycle.id;
+  if(calendarSyncFor(person.id, cycle.id)) return 'already';
+  let token;
+  try{
+    token = await ensureGcalAuth();
+  }catch(e){
+    if(silent) return 'skipped';
+    throw e;
+  }
+  const startEvent = await createGcalEvent({
+    summary: 'Plei Performance: ' + cycle.label + ' opens',
+    description: 'Your ' + cycle.label + ' performance review cycle opens today in Plei Performance.',
+    startISO: new Date(cycle.startDate+'T09:00:00').toISOString(),
+    durationMinutes: 30,
+    attendeeEmails: []
+  }).catch(e=>{ console.error('cycle start calendar event failed', e); return null; });
+  const endEvent = await createGcalEvent({
+    summary: 'Plei Performance: ' + cycle.label + ' deadline',
+    description: 'Complete your pending performance reviews in Plei Performance before this date.',
+    startISO: new Date(cycle.endDate+'T17:00:00').toISOString(),
+    durationMinutes: 30,
+    attendeeEmails: []
+  }).catch(e=>{ console.error('cycle end calendar event failed', e); return null; });
+  await fdb.collection('calendarSync').doc(id).set({
+    personId: person.id, personEmail: person.email, cycleId: cycle.id, cycleLabel: cycle.label,
+    startEventId: startEvent?startEvent.id:null, endEventId: endEvent?endEvent.id:null,
+    syncedAt: new Date().toISOString()
+  });
+  return 'synced';
+}
+// Runs once per page load, right after login. Only ever acts silently — if the person hasn't
+// granted Calendar access before, this simply does nothing and the "Add to Google Calendar"
+// button in My Profile stays available for them to do it themselves, once.
+let cycleCalendarAutoSyncDone = false;
+async function autoSyncCycleCalendarsOnLogin(){
+  if(cycleCalendarAutoSyncDone) return;
+  cycleCalendarAutoSyncDone = true;
+  const person = sessionPerson();
+  if(!person) return;
+  const openCycles = DB.cycles.filter(c=>c.status==='open');
+  for(const cycle of openCycles){
+    try{ await syncCycleCalendarForPerson(person, cycle, true); }
+    catch(e){ console.error('auto calendar sync failed for cycle', cycle.id, e); }
+  }
+  if(DB_LOADED) render();
+}
+
+
 function findReview(type, cycleId, matchFn){ return DB.reviews[type].find(r=>r.cycleId===cycleId && matchFn(r)); }
 
 function avg(arr){ if(!arr.length) return null; return arr.reduce((a,b)=>a+b,0)/arr.length; }
@@ -722,6 +779,7 @@ function initApp(){
       STATE.nav = null;
       DB_LOADED = true;
       render();
+      autoSyncCycleCalendarsOnLogin();
     });
   });
 }
@@ -966,17 +1024,18 @@ async function deleteCycle(cycleId){
     fdb.collection('peer_authorship').where('cycleId','==',cycleId).get(),
     fdb.collection('upward_authorship').where('cycleId','==',cycleId).get(),
   ]);
-  const [peerCountsSnap, upwardCountsSnap, peerSummariesSnap, upwardSummariesSnap, oneOnOnesSnap] = await Promise.all([
+  const [peerCountsSnap, upwardCountsSnap, peerSummariesSnap, upwardSummariesSnap, oneOnOnesSnap, calendarSyncSnap] = await Promise.all([
     fdb.collection('peer_counts').get(),
     fdb.collection('upward_counts').get(),
     fdb.collection('peer_summaries').where('cycleId','==',cycleId).get(),
     fdb.collection('upward_summaries').where('cycleId','==',cycleId).get(),
     fdb.collection('oneonones').where('cycleId','==',cycleId).get(),
+    fdb.collection('calendarSync').where('cycleId','==',cycleId).get(),
   ]);
   const peerCountsDocs = peerCountsSnap.docs.filter(d=>d.id.endsWith('_'+cycleId));
   const upwardCountsDocs = upwardCountsSnap.docs.filter(d=>d.id.endsWith('_'+cycleId));
 
-  const total = selfSnap.size + mgrSnap.size + peerSnap.size + upwardSnap.size + peerAuthSnap.size + upwardAuthSnap.size + peerCountsDocs.length + upwardCountsDocs.length + peerSummariesSnap.size + upwardSummariesSnap.size + oneOnOnesSnap.size;
+  const total = selfSnap.size + mgrSnap.size + peerSnap.size + upwardSnap.size + peerAuthSnap.size + upwardAuthSnap.size + peerCountsDocs.length + upwardCountsDocs.length + peerSummariesSnap.size + upwardSummariesSnap.size + oneOnOnesSnap.size + calendarSyncSnap.size;
   const warning = total > 0
     ? `This cycle has review data attached: ${selfSnap.size} self-reviews, ${mgrSnap.size} manager reviews, ${peerSnap.size} company wide feedback entries, ${upwardSnap.size} upward reviews, plus related summaries and counters. Deleting "${c.label}" will permanently erase all of it — this cannot be undone.`
     : `"${c.label}" has no review data attached — it's safe to delete.`;
@@ -987,7 +1046,7 @@ async function deleteCycle(cycleId){
     ...peerAuthSnap.docs, ...upwardAuthSnap.docs,
     ...peerCountsDocs, ...upwardCountsDocs,
     ...peerSummariesSnap.docs, ...upwardSummariesSnap.docs,
-    ...oneOnOnesSnap.docs,
+    ...oneOnOnesSnap.docs, ...calendarSyncSnap.docs,
   ];
   for(let i=0; i<allDocs.length; i+=400){
     const batch = fdb.batch();
@@ -1957,8 +2016,18 @@ function viewMyReviews(cycle, person){
   </div>
   <div class="card">
     <h2>Add cycle deadline to my calendar</h2>
-    <div class="desc">Deadline: ${fmtDate(cycle.endDate)}</div>
-    <button class="btn ghost sm" id="downloadMyIcs">📅 Download .ics</button>
+    ${(()=>{
+      const sync = calendarSyncFor(person.id, cycle.id);
+      if(sync){
+        return `<div class="desc">${cycle.label} — ${fmtDate(cycle.startDate)} to ${fmtDate(cycle.endDate)}</div>
+          <span class="badge ok">${icon('check',11)} Added to your Google Calendar</span>`;
+      }
+      return `<div class="desc">${cycle.label} — ${fmtDate(cycle.startDate)} to ${fmtDate(cycle.endDate)}. Add it to your Google Calendar once — after that, every new cycle gets added automatically when you log in.</div>
+        <div class="row">
+          <button class="btn ghost sm" id="syncCycleGcal">📅 Add to Google Calendar</button>
+          <button class="btn ghost sm" id="downloadMyIcs">Download .ics instead</button>
+        </div>`;
+    })()}
   </div>
   <div class="card">
     <h2>Company wide feedback about me</h2>
@@ -2175,6 +2244,19 @@ function bindViewEvents(role, nav, cycle, person){
   document.getElementById('downloadMyIcs')?.addEventListener('click', ()=>{
     const cycle = getCycle(STATE.activeCycleId);
     downloadICS('plei-review-deadline.ics', buildICS({title:`Plei Performance: ${cycle.label} deadline`, description:'Complete your pending performance reviews before this date.', date:cycle.endDate}));
+  });
+  document.getElementById('syncCycleGcal')?.addEventListener('click', async ()=>{
+    const btn = document.getElementById('syncCycleGcal');
+    const originalLabel = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Connecting to Google Calendar…';
+    try{
+      const cycleNow = getCycle(STATE.activeCycleId);
+      await syncCycleCalendarForPerson(person, cycleNow, false);
+      toast('Added to your Google Calendar'); render();
+    }catch(e){
+      btn.disabled = false; btn.textContent = originalLabel;
+      alert(e.message || 'Could not add this to your Google Calendar. Please try again.');
+    }
   });
   document.querySelectorAll('[data-acknowledge-review]').forEach(el=>el.addEventListener('click', async ()=>{
     await fdb.collection('reviews_manager').doc(el.dataset.acknowledgeReview).update({acknowledgedAt:new Date().toISOString()});
