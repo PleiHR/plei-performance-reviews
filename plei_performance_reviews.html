@@ -395,13 +395,13 @@ function startReviewListeners(email, isHR){
     // Raw company wide feedback content never reaches non-HR clients — only HR-published summaries do.
     DB.reviews.peer = [];
     let peerSummaryAsTarget = [], peerSummaryAsManager = [];
-    reviewListenerUnsubs.push(fdb.collection('peer_summaries').where('targetEmail','==',email).onSnapshot(snap=>{ peerSummaryAsTarget = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); DB.peerSummaries = mergeById(peerSummaryAsTarget, peerSummaryAsManager); if(DB_LOADED) render(); }, e=>console.error(e)));
-    reviewListenerUnsubs.push(fdb.collection('peer_summaries').where('managerEmail','==',email).onSnapshot(snap=>{ peerSummaryAsManager = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); DB.peerSummaries = mergeById(peerSummaryAsTarget, peerSummaryAsManager); if(DB_LOADED) render(); }, e=>console.error(e)));
+    reviewListenerUnsubs.push(fdb.collection('peer_summaries').where('targetEmail','==',email).where('published','==',true).onSnapshot(snap=>{ peerSummaryAsTarget = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); DB.peerSummaries = mergeById(peerSummaryAsTarget, peerSummaryAsManager); if(DB_LOADED) render(); }, e=>console.error(e)));
+    reviewListenerUnsubs.push(fdb.collection('peer_summaries').where('managerEmail','==',email).where('published','==',true).onSnapshot(snap=>{ peerSummaryAsManager = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); DB.peerSummaries = mergeById(peerSummaryAsTarget, peerSummaryAsManager); if(DB_LOADED) render(); }, e=>console.error(e)));
     // Raw upward review content never reaches non-HR clients — only HR-published summaries do.
     DB.reviews.upward = [];
     // Suggestions are HR-only — never loaded into non-HR clients, even for the person's own submission.
     DB.suggestions = [];
-    reviewListenerUnsubs.push(fdb.collection('upward_summaries').where('visibleToIds','array-contains',myId).onSnapshot(snap=>{ DB.upwardSummaries = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
+    reviewListenerUnsubs.push(fdb.collection('upward_summaries').where('visibleToIds','array-contains',myId).where('published','==',true).onSnapshot(snap=>{ DB.upwardSummaries = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('peer_authorship').where('authorEmail','==',email).onSnapshot(snap=>{ DB.peerAuthorship = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('upward_authorship').where('authorEmail','==',email).onSnapshot(snap=>{ DB.upwardAuthorship = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     let o1AsEmployee = [], o1AsManager = [];
@@ -425,7 +425,7 @@ function stopBaseListeners(){
 let lastReviewListenerMode = null;
 function onPeopleSynced(){
   if(!CURRENT_USER) return;
-  const me = DB.people.find(p=>p.id===myLocalId(CURRENT_USER.email));
+  const me = DB.people.find(p=>(p.email||'').toLowerCase()===CURRENT_USER.email);
   const isHR = !!(me && me.role==='hr');
   const mode = isHR ? 'hr' : ('self:'+CURRENT_USER.email);
   if(mode !== lastReviewListenerMode){
@@ -1195,7 +1195,12 @@ function personModal(existingId){
       role:document.getElementById('pp_role').value, managerId:document.getElementById('pp_mgr').value||null
     };
     if(p){ await fdb.collection('people').doc(p.id).set(data, {merge:true}); }
-    else { await fdb.collection('people').doc(uid('p')).set(Object.assign({invited:false, active:false}, data)); }
+    else {
+      const newId = email.split('@')[0].toLowerCase();
+      const existing = await fdb.collection('people').doc(newId).get();
+      if(existing.exists){ alert('A person with this email already exists.'); return; }
+      await fdb.collection('people').doc(newId).set(Object.assign({invited:false, active:false}, data));
+    }
     document.getElementById('personModalBg').remove(); toast(p?'Person updated':'Person added — send them an invite so they can sign in'); render();
   });
 }
