@@ -197,21 +197,21 @@ function navGroupHTML(label, key, list){
 }
 
 /* ============================= REVIEW PROGRAM RULES ============================= */
-const ANONYMITY_MIN = 3; // peer & upward reviews stay hidden from target/manager until this many responses exist
+const ANONYMITY_MIN = 3; // soft heads-up threshold only — HR can publish a summary at any response count; below this, a non-blocking caution is shown about identifiability
 const HOW_REVIEWS_WORK = [
   {type:'Self-review', anon:false, who:'Named — you write it, your manager and HR can read it.',
    detail:'You reflect on your own performance. Your manager sees it before writing their review, and HR can see it for calibration.'},
   {type:'Manager review', anon:false, who:'Named — your manager writes it, you and HR can read it.',
    detail:'Your manager evaluates your performance. You receive the combined report (your self-review + their review) to discuss in your 1:1.'},
   {type:'Company wide feedback', anon:true, who:'Anonymous — HR reads the raw feedback first; the person and their manager only ever see a summary HR writes, never the original quotes.',
-   detail:`Anyone at Plei can leave feedback about any colleague, anytime — entirely optional, no nomination or request needed. Use it to share something positive, or to flag a concern. Raw feedback goes to HR only. Once at least ${ANONYMITY_MIN} pieces of feedback exist about someone, HR reviews it and publishes a summary to that person and their manager — never the raw quotes, so no one can guess who wrote what.`},
+   detail:`Anyone at Plei can leave feedback about any colleague, anytime — entirely optional, no nomination or request needed. Use it to share something positive, or to flag a concern. Raw feedback goes to HR only, as soon as it's submitted. HR reviews it and decides when to publish a summary to that person and their manager — never the raw quotes, so no one can guess who wrote what.`},
   {type:'Upward review', anon:true, who:'Anonymous — HR reviews it first; raw responses are never shared with the manager.',
-   detail:`You review your own manager. HR reads all the raw feedback, analyzes it, and writes an overall summary and evaluation — only once at least ${ANONYMITY_MIN} responses exist. Nothing is sent automatically: HR decides when to publish, and chooses who receives it — the manager, their manager (skip-level), or both. If a manager has fewer than ${ANONYMITY_MIN} direct reports, HR delivers the themes verbally instead of publishing them in the app.`},
+   detail:`You review your own manager. HR reads all the raw feedback as soon as it's submitted, analyzes it, and writes an overall summary and evaluation. Nothing is sent automatically: HR decides when to publish, and chooses who receives it — the manager, their manager (skip-level), or both. With very few responses, HR may choose to deliver themes verbally instead of publishing them in the app, to protect anonymity.`},
   {type:'1:1 debrief', anon:false, who:'Named — a required step for every manager review.',
    detail:'As soon as a manager submits a direct report\'s review, scheduling a 1:1 to deliver it becomes a required task. It creates a real Google Calendar invite for both people, and the manager confirms once the conversation has happened. HR can see the status of every 1:1 across the company from 1:1 Tracking.'},
 ];
 function howReviewsWorkBlurb(){
-  return `<div class="hrw-note"><b>${icon('shield',14)} How reviews work:</b> Self and manager reviews are named. Company wide feedback and upward reviews are anonymous — HR reads the raw responses first and shares only a summary, once ${ANONYMITY_MIN}+ responses exist — see <a href="#" data-nav="howreviews">How reviews work</a> for the full breakdown.</div>`;
+  return `<div class="hrw-note"><b>${icon('shield',14)} How reviews work:</b> Self and manager reviews are named. Company wide feedback and upward reviews are anonymous — HR reads all the raw responses as soon as they're submitted, and shares only a summary — see <a href="#" data-nav="howreviews">How reviews work</a> for the full breakdown.</div>`;
 }
 
 
@@ -1281,37 +1281,34 @@ function viewPeerHR(cycle){
 
   const coverageRows = DB.people.filter(p=>!p.deactivated).map(p=>{
     const count = peerCountFor(p.id, cycle.id);
-    return {p, count, readyToSummarize: count>=ANONYMITY_MIN};
+    return {p, count};
   }).sort((a,b)=>b.count-a.count);
-  const belowMin = coverageRows.filter(r=>r.count>0 && r.count<ANONYMITY_MIN).length;
   const zero = coverageRows.filter(r=>r.count===0).length;
 
   return `<div class="card">
     <h2>Company wide feedback — response counts</h2>
-    <div class="desc">${cycle.label} — anyone can leave feedback about anyone, anytime; it's optional, so counts vary by person. Raw feedback is for HR only. Once ${ANONYMITY_MIN}+ responses exist about someone, publish a summary below to share with them and their manager.</div>
+    <div class="desc">${cycle.label} — anyone can leave feedback about anyone, anytime; it's optional, so counts vary by person. Raw feedback reaches HR as soon as it's submitted — publish a summary below whenever you're ready to share it with them and their manager.</div>
     <div class="row" style="margin-bottom:10px;">
       <span class="tag">${reviews.length} pieces of feedback received</span>
-      <span class="badge ${belowMin?'warn':'ok'}">${belowMin} below the ${ANONYMITY_MIN}-response minimum</span>
       <span class="badge neutral">${zero} with none yet</span>
     </div>
-    <table><thead><tr><th>Person</th><th>Responses</th><th>Ready to summarize?</th></tr></thead><tbody>
+    <table><thead><tr><th>Person</th><th>Responses</th></tr></thead><tbody>
     ${coverageRows.map(r=>`<tr>
       <td><div class="person-cell"><div class="avatar">${initials(r.p.name)}</div>${r.p.name}</div></td>
       <td>${r.count}</td>
-      <td>${r.readyToSummarize?'<span class="badge ok">Yes</span>':'<span class="badge neutral">Not yet</span>'}</td>
     </tr>`).join('')}
     </tbody></table>
   </div>
   <div class="card">
     <h2>Feedback content — HR only</h2>
-    <div class="desc">Grouped by the person being reviewed — the author is never revealed, even to HR. Raw quotes below never reach the person or their manager; write a summary in your own words and publish it once ${ANONYMITY_MIN}+ responses exist.</div>
+    <div class="desc">Grouped by the person being reviewed — the author is never revealed, even to HR. Raw quotes below never reach the person or their manager; write a summary in your own words and publish it whenever you're ready.</div>
     <div class="row" style="margin-bottom:10px;"><span class="tag">${reviews.length} received in total</span></div>
     ${Object.keys(byTarget).length===0?'<div class="empty">No feedback yet this cycle.</div>':''}
     ${Object.keys(byTarget).map(tid=>{
       const person = getPerson(tid);
       const list = byTarget[tid];
       const avgScore = avg(list.map(ratingAvgOfReview).filter(Boolean));
-      const meetsMin = list.length >= ANONYMITY_MIN;
+      const lowCount = list.length < ANONYMITY_MIN;
       const summary = peerSummaryFor(tid, cycle.id);
       return `<div style="margin-bottom:18px;">
         <div class="row" style="justify-content:space-between;">
@@ -1324,14 +1321,14 @@ function viewPeerHR(cycle){
           ${r.answers.example?`<div><b>Example:</b> ${r.answers.example}</div>`:''}
           ${r.answers.growth?`<div><b>Suggestion:</b> ${r.answers.growth}</div>`:''}
         </div>`).join('')}
-        ${!meetsMin ? `<div class="login-note">Below the ${ANONYMITY_MIN}-response minimum — nothing can be published yet.</div>` : `
+        ${lowCount ? `<div class="login-note">Heads up: fewer than ${ANONYMITY_MIN} responses — summarizing very specific wording could make it easier to guess who wrote it. You can still publish whenever you're ready.</div>` : ''}
         <div class="field"><label>Summary to share with ${person.name} and their manager</label><div class="hint">Summarize the raw feedback above in your own words — this is what they'll see, never the raw quotes.</div>
           <textarea data-peer-summary-themes="${tid}">${summary?summary.themes||'':''}</textarea>
         </div>
         <div class="row">
           <button class="btn sm" data-publish-peer-summary="${tid}">${summary&&summary.published?'Update published summary':'Publish summary'}</button>
           ${summary&&summary.published?`<span class="badge ok">${icon('check',11)} Published ${fmtDate((summary.publishedAt||'').slice(0,10))}</span>`:''}
-        </div>`}
+        </div>
       </div>`;
     }).join('')}
   </div>`;
@@ -1348,7 +1345,7 @@ function viewUpwardHR(cycle){
       const avgScore = avg(list.map(ratingAvgOfReview).filter(Boolean));
       const teamSize = directReports(m.id).length;
       const summary = upwardSummaryFor(m.id, cycle.id);
-      const meetsMin = list.length >= ANONYMITY_MIN;
+      const lowCount = list.length>0 && list.length < ANONYMITY_MIN;
       const skipMgr = m.managerId ? getPerson(m.managerId) : null;
       const curRecipients = summary ? (summary.recipients || 'manager') : 'manager';
       return `<div style="margin-bottom:22px;">
@@ -1364,7 +1361,7 @@ function viewUpwardHR(cycle){
           ${r.answers.other?`<div><b>Other:</b> ${r.answers.other}</div>`:''}
         </div>`).join('')}
         <div class="divider"></div>
-        ${!meetsMin ? `<div class="login-note">${teamSize<ANONYMITY_MIN?`This manager has fewer than ${ANONYMITY_MIN} direct reports — deliver themes verbally instead of publishing in the app.`:`Below the ${ANONYMITY_MIN}-response minimum — nothing can be published yet.`}</div>` : `
+        ${lowCount ? `<div class="login-note">Heads up: fewer than ${ANONYMITY_MIN} responses — consider delivering themes verbally instead of publishing in the app, to protect anonymity. You can still publish whenever you're ready.</div>` : ''}
         <div class="field"><label>Overall summary and evaluation for ${m.name}</label><div class="hint">Analyze the raw feedback above and write your own summary — this is what gets sent, never the raw quotes.</div>
           <textarea data-summary-themes="${m.id}">${summary?summary.themes||'':''}</textarea>
         </div>
@@ -1378,7 +1375,7 @@ function viewUpwardHR(cycle){
         <div class="row">
           <button class="btn sm" data-publish-summary="${m.id}">${summary&&summary.published?'Update & send':'Send summary'}</button>
           ${summary&&summary.published?`<span class="badge ok">${icon('check',11)} Sent ${fmtDate((summary.publishedAt||'').slice(0,10))}</span>`:''}
-        </div>`}
+        </div>
       </div>`;
     }).join('')}
   </div>`;
@@ -1692,7 +1689,7 @@ const MANAGER_STEPS = [
   {title:'Write manager reviews', body:'Evaluate each direct report. They’ll see this next to their self-review before your 1:1 — leave enough time before the deadline.'},
   {title:'Schedule the 1:1 debrief', body:'Required as soon as you submit a review: schedule the 1:1 from My Team. It creates a real Google Calendar invite for you and your report, and you confirm once you\'ve had the conversation.'},
   {title:'Track your team', body:'Use My Team to see who on your team is behind on their self-review, so nobody surprises you at the deadline.'},
-  {title:'Receive upward feedback', body:'Once HR publishes a summary — only after at least 3 responses — check My Upward Feedback for aggregate scores and HR-written themes. You’ll never see raw quotes or who wrote what.'},
+  {title:'Receive upward feedback', body:'Once HR publishes a summary, check My Upward Feedback for aggregate scores and HR-written themes. You’ll never see raw quotes or who wrote what.'},
   {title:'See company wide feedback about your team', body:'If colleagues leave feedback about one of your reports, HR reviews it and, once there are enough responses, publishes a summary you can see from My Team. You’ll never see the raw quotes or who wrote them.'},
   {title:'Download reports for your 1:1s', body:'Pull the combined self + manager PDF from Reports / PDF ahead of each conversation, so you\'re both looking at the same document.'},
 ];
@@ -1731,12 +1728,11 @@ function viewHowReviewsWork(person){
 
 function viewMyTeamFeedback(cycle, person){
   const summary = upwardSummaryFor(person.id, cycle.id);
-  const teamSize = directReports(person.id).length;
   if(!summary || !summary.published){
     return `<div class="card"><h2>My upward feedback</h2>
       <div class="desc">${cycle.label} — anonymous feedback your team submitted about you as a manager. Raw responses go to HR only; HR reviews everything and sends you an overall summary when it's ready.</div>
       ${howReviewsWorkBlurb()}
-      <div class="empty">${teamSize<ANONYMITY_MIN?`Not available in-app — your team is smaller than the ${ANONYMITY_MIN}-response minimum needed to keep responses anonymous. HR will share themes with you directly.`:"HR hasn't sent a summary for this cycle yet."}</div>
+      <div class="empty">HR hasn't sent a summary for this cycle yet.</div>
     </div>`;
   }
   return `<div class="card"><h2>My upward feedback</h2>
