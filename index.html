@@ -1746,7 +1746,6 @@ const EMPLOYEE_STEPS = [
   {title:'Get your manager’s review', body:'Your manager writes about your performance. Once both are in, you see the combined self + manager report ahead of your 1:1.'},
   {title:'Meet for your 1:1', body:'Once your manager submits your review, they’ll schedule a 1:1 with you on Google Calendar to walk through it together — you’ll get a real calendar invite. Check My Profile for the date.'},
   {title:'See feedback about you', body:'If colleagues leave company wide feedback about you, HR reviews it and, once there are enough responses, publishes a summary to My Profile — never the raw quotes.'},
-  {title:'Acknowledge', body:'After your 1:1, confirm you’ve seen your review from My Profile. This is what creates the audit trail HR needs.'},
   {title:'Cycle closes', body:'Once HR locks the cycle, all reviews become read-only — nothing can be edited or submitted late.'},
 ];
 const MANAGER_STEPS = [
@@ -1993,9 +1992,6 @@ function viewMyReviews(cycle, person){
         <h3 style="margin-top:0;">My manager's review</h3>
         <p class="small muted">${mgrRev&&mgrRev.status==='submitted'?'Available':'Not available yet'}</p>
         ${mgrRev&&mgrRev.status==='submitted'?`<button class="btn sm" data-print-combined="${person.id}">🖨️ Download PDF</button>`:''}
-        ${mgrRev&&mgrRev.status==='submitted' ? (mgrRev.acknowledgedAt
-          ? `<div class="row" style="margin-top:8px;"><span class="badge ok">${icon('check',11)} Acknowledged ${fmtDate((mgrRev.acknowledgedAt||'').slice(0,10))}</span></div>`
-          : `<button class="btn secondary sm" style="margin-top:8px;" data-acknowledge-review="${mgrRev.id}">I've reviewed this with my manager</button>`) : ''}
       </div>
     </div>
   </div>
@@ -2263,10 +2259,6 @@ function bindViewEvents(role, nav, cycle, person){
       alert(e.message || 'Could not add this to your Google Calendar. Please try again.');
     }
   });
-  document.querySelectorAll('[data-acknowledge-review]').forEach(el=>el.addEventListener('click', async ()=>{
-    await fdb.collection('reviews_manager').doc(el.dataset.acknowledgeReview).update({acknowledgedAt:new Date().toISOString()});
-    toast('Marked as acknowledged'); render();
-  }));
   document.querySelectorAll('[data-publish-summary]').forEach(el=>el.addEventListener('click', async ()=>{
     const managerId = el.dataset.publishSummary;
     const manager = getPerson(managerId);
