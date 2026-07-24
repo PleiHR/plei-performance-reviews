@@ -9,10 +9,10 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=clash-grotesk@500,600&display=swap">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js" integrity="sha384-DhxhYObIMeMNGyAG7iK11OHzBIKyEIeRL0ad1iFPAOwZB8iirUlTT0O/WJJUk8+o" crossorigin="anonymous"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js" integrity="sha384-AQ3POAMqIhwS81FrUH95ekxqBZHeP5tG2JfEL3+7GuTtfRLWnrRh32UxwzM+//A9" crossorigin="anonymous"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js" integrity="sha384-TnlRYaR4JYz/lpaGuaiU61PjNberSA4vjLjtF+oRC/IkohkJqnWxw5EmDSOt1vA1" crossorigin="anonymous"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js" integrity="sha384-qn4Jh88HhJA8dplNQyGjOh9OGI4izVhrfj/qIFgaKcdgOE06pXqIKGlsCILZcLAC" crossorigin="anonymous"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
   :root{
@@ -706,6 +706,15 @@ async function autoSyncCycleCalendarsOnLogin(){
 
 function findReview(type, cycleId, matchFn){ return DB.reviews[type].find(r=>r.cycleId===cycleId && matchFn(r)); }
 
+function escapeHtml(str){
+  if(str===null || str===undefined) return '';
+  return String(str)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#39;');
+}
 function avg(arr){ if(!arr.length) return null; return arr.reduce((a,b)=>a+b,0)/arr.length; }
 function ratingAvgOfReview(r){ if(!r || !r.ratings) return null; const vals=Object.values(r.ratings); return avg(vals); }
 
@@ -1381,9 +1390,9 @@ function viewPeerHR(cycle){
         </div>
         ${list.map(r=>`<div class="quote-card">
           <div class="meta">Anonymous · Collaboration ${r.ratings.collaboration} · Reliability ${r.ratings.reliability} · Impact ${r.ratings.impact}</div>
-          <div><b>Strengths:</b> ${r.answers.strengths||'—'}</div>
-          ${r.answers.example?`<div><b>Example:</b> ${r.answers.example}</div>`:''}
-          ${r.answers.growth?`<div><b>Suggestion:</b> ${r.answers.growth}</div>`:''}
+          <div><b>Strengths:</b> ${escapeHtml(r.answers.strengths)||'—'}</div>
+          ${r.answers.example?`<div><b>Example:</b> ${escapeHtml(r.answers.example)}</div>`:''}
+          ${r.answers.growth?`<div><b>Suggestion:</b> ${escapeHtml(r.answers.growth)}</div>`:''}
         </div>`).join('')}
         ${lowCount ? `<div class="login-note">Heads up: fewer than ${ANONYMITY_MIN} responses — summarizing very specific wording could make it easier to guess who wrote it. You can still publish whenever you're ready.</div>` : ''}
         <div class="field"><label>Summary to share with ${person.name} and their manager</label><div class="hint">Summarize the raw feedback above in your own words — this is what they'll see, never the raw quotes.</div>
@@ -1420,9 +1429,9 @@ function viewUpwardHR(cycle){
         ${list.length===0?'<div class="empty">No responses yet.</div>':''}
         ${list.map(r=>`<div class="quote-card">
           <div class="meta">Anonymous · Support ${r.ratings.support} · Communication ${r.ratings.communication} · Overall satisfaction ${r.ratings.overall}</div>
-          <div><b>Support received:</b> ${r.answers.strengths||'—'}</div>
-          <div><b>Opportunities for improvement:</b> ${r.answers.improvements||'—'}</div>
-          ${r.answers.other?`<div><b>Other:</b> ${r.answers.other}</div>`:''}
+          <div><b>Support received:</b> ${escapeHtml(r.answers.strengths)||'—'}</div>
+          <div><b>Opportunities for improvement:</b> ${escapeHtml(r.answers.improvements)||'—'}</div>
+          ${r.answers.other?`<div><b>Other:</b> ${escapeHtml(r.answers.other)}</div>`:''}
         </div>`).join('')}
         <div class="divider"></div>
         ${lowCount ? `<div class="login-note">Heads up: fewer than ${ANONYMITY_MIN} responses — consider delivering themes verbally instead of publishing in the app, to protect anonymity. You can still publish whenever you're ready.</div>` : ''}
@@ -1566,8 +1575,8 @@ function viewSuggestions(isHR){
     <div class="desc">Ideas and proposals to improve Plei. Can be submitted anonymously or with a name.</div>
     ${list.length===0?'<div class="empty">No suggestions yet.</div>':''}
     ${list.map(s=>`<div class="quote-card">
-      <div class="meta">${s.anonymous?'Anonymous':s.authorName||'—'} · ${s.category} · ${s.createdAt}</div>
-      <div>${s.text}</div>
+      <div class="meta">${s.anonymous?'Anonymous':escapeHtml(s.authorName)||'—'} · ${escapeHtml(s.category)} · ${escapeHtml(s.createdAt)}</div>
+      <div>${escapeHtml(s.text)}</div>
     </div>`).join('')}
   </div>`;
 }
@@ -1651,7 +1660,7 @@ function selfReviewModal(cycle, employee){
     <span class="close-x" id="closeSelfReviewModal">✕</span>
     <h3>${employee.name}'s self-review</h3>
     <div class="desc">${cycle.label} · ${employee.title} · ${employee.department}</div>
-    ${SELF_FIELDS.map(f=>`<div class="field"><label>${f.label}</label><p style="margin:0;font-size:13.5px;line-height:1.5;">${rev.answers[f.key]||'—'}</p></div>`).join('')}
+    ${SELF_FIELDS.map(f=>`<div class="field"><label>${f.label}</label><p style="margin:0;font-size:13.5px;line-height:1.5;">${escapeHtml(rev.answers[f.key])||'—'}</p></div>`).join('')}
     <button class="btn" id="downloadSelfFromModal" style="width:100%;">🖨️ Download PDF</button>
   </div></div>`;
   document.body.insertAdjacentHTML('beforeend', modalHtml);
@@ -1699,7 +1708,7 @@ function viewManagerReviewForm(cycle, manager, employee){
     </div>
     <div class="desc">${cycle.label} · ${employee.title} · ${employee.department}</div>
     ${selfRev && selfRev.status==='submitted' ? `<div class="quote-card"><div class="meta">${employee.name}'s self-review</div>
-      ${SELF_FIELDS.map(f=>`<div style="margin-bottom:8px;"><b>${f.label}:</b> ${selfRev.answers[f.key]||'—'}</div>`).join('')}
+      ${SELF_FIELDS.map(f=>`<div style="margin-bottom:8px;"><b>${f.label}:</b> ${escapeHtml(selfRev.answers[f.key])||'—'}</div>`).join('')}
     </div>` : `<div class="empty">${employee.name} hasn't submitted their self-review yet.</div>`}
     <div class="divider"></div>
     <h3 style="margin-top:0;">Ratings</h3>
@@ -1708,7 +1717,7 @@ function viewManagerReviewForm(cycle, manager, employee){
     <div class="divider"></div>
     ${MANAGER_FIELDS.map(f=>`<div class="field">
       <label>${f.label}</label><div class="hint">${f.hint}</div>
-      <textarea data-mgr-field="${f.key}">${existing?existing.answers[f.key]||'':''}</textarea>
+      <textarea data-mgr-field="${f.key}">${existing?escapeHtml(existing.answers[f.key]):''}</textarea>
     </div>`).join('')}
     <div class="row">
       <button class="btn" id="submitManagerReview">Submit review</button>
@@ -1727,7 +1736,7 @@ function viewSelfForm(cycle, person){
     ${submitted?'<div class="row" style="margin-bottom:12px;"><span class="badge ok">Submitted</span></div>':''}
     ${SELF_FIELDS.map(f=>`<div class="field">
       <label>${f.label}</label><div class="hint">${f.hint}</div>
-      <textarea data-self-field="${f.key}">${existing?existing.answers[f.key]||'':''}</textarea>
+      <textarea data-self-field="${f.key}">${existing?escapeHtml(existing.answers[f.key]):''}</textarea>
     </div>`).join('')}
     <div class="row">
       <button class="btn" id="submitSelfReview">Submit self-review</button>
@@ -2089,10 +2098,10 @@ function buildCombinedPrintable(cycle, employee){
 
   ${mgrRev ? `<h2>Manager evaluation</h2>
   <table>${ratingsHtml}</table>
-  ${MANAGER_FIELDS.map(f=>`<div class="block"><b>${f.label}</b><p>${(mgrRev.answers[f.key]||'—').replace(/</g,'&lt;')}</p></div>`).join('')}` : ''}
+  ${MANAGER_FIELDS.map(f=>`<div class="block"><b>${f.label}</b><p>${escapeHtml(mgrRev.answers[f.key])||'—'}</p></div>`).join('')}` : ''}
 
   ${selfRev ? `<h2>Self-review</h2>
-  ${SELF_FIELDS.map(f=>`<div class="block"><b>${f.label}</b><p>${(selfRev.answers[f.key]||'—').replace(/</g,'&lt;')}</p></div>`).join('')}` : ''}
+  ${SELF_FIELDS.map(f=>`<div class="block"><b>${f.label}</b><p>${escapeHtml(selfRev.answers[f.key])||'—'}</p></div>`).join('')}` : ''}
 
   <div class="meta" style="margin-top:30px;">Generated by Plei Performance on ${new Date().toLocaleDateString('en-US')}</div>
   </body></html>`;
@@ -2107,7 +2116,7 @@ function buildSelfOnlyPrintable(cycle, person){
   h1{font-family:'Clash Grotesk','Inter',sans-serif;font-size:22px;} .meta{color:#5c7c74;font-size:13px;margin-bottom:20px;}
   .block{margin-bottom:16px;} .block b{display:block;font-size:13px;margin-bottom:3px;color:#16755C;} .block p{margin:0;font-size:13.5px;line-height:1.5;}</style>
   </head><body>${pdfHeader(cycle.label)}<h1>Self-review — ${person.name}</h1><div class="meta">${person.title} · ${person.department} · ${cycle.label}</div>
-  ${SELF_FIELDS.map(f=>`<div class="block"><b>${f.label}</b><p>${(selfRev.answers[f.key]||'—').replace(/</g,'&lt;')}</p></div>`).join('')}
+  ${SELF_FIELDS.map(f=>`<div class="block"><b>${f.label}</b><p>${escapeHtml(selfRev.answers[f.key])||'—'}</p></div>`).join('')}
   </body></html>`;
 }
 function buildPeerPrintable(cycle, peerReview){
@@ -2124,7 +2133,7 @@ function buildPeerPrintable(cycle, peerReview){
   </head><body>${pdfHeader(cycle.label)}<h1>Company wide feedback — about ${target.name}</h1>
   <div class="meta">Submitted by you (kept anonymous to ${target.name}) · ${cycle.label}</div>
   <table>${ratingsHtml}</table>
-  ${PEER_FIELDS.map(f=>`<div class="block"><b>${f.label}</b><p>${(peerReview.answers[f.key]||'—').replace(/</g,'&lt;')}</p></div>`).join('')}
+  ${PEER_FIELDS.map(f=>`<div class="block"><b>${f.label}</b><p>${escapeHtml(peerReview.answers[f.key])||'—'}</p></div>`).join('')}
   </body></html>`;
 }
 function printHtml(html){
