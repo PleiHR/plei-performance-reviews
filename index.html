@@ -352,7 +352,7 @@ async function seedFirestoreFromOrgData(){
 
 /* In-memory mirror of Firestore, kept in sync via onSnapshot listeners below.
    The rest of the app reads/renders from this object exactly like the old localStorage version did. */
-let DB = {departments:[], people:[], cycles:[], settings:{companyDomain:'plei.com'},
+let DB = {departments:[], people:[], directory:[], cycles:[], settings:{companyDomain:'plei.com'},
   reviews:{self:[], manager:[], peer:[], upward:[]}, suggestions:[],
   peerCounts:[], peerAuthorship:[], peerSummaries:[],
   upwardCounts:[], upwardSummaries:[], upwardAuthorship:[], oneOnOnes:[], calendarSync:[]};
@@ -415,11 +415,28 @@ function startReviewListeners(email, isHR){
   reviewListenerUnsubs.push(fdb.collection('upward_counts').onSnapshot(snap=>{ DB.upwardCounts = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
 }
 
-let peopleUnsub=null, cyclesUnsub=null, settingsUnsub=null, suggestionsUnsub=null;
+let peopleUnsub=null, cyclesUnsub=null, settingsUnsub=null, suggestionsUnsub=null, directoryUnsub=null;
+let selfDocUnsub=null, fullPeopleUnsub=null, subtreeUnsub=null, RAW_PEOPLE=[];
 
 function stopBaseListeners(){
-  [peopleUnsub, cyclesUnsub, settingsUnsub, suggestionsUnsub].forEach(u=>{ if(u) u(); });
-  peopleUnsub = cyclesUnsub = settingsUnsub = suggestionsUnsub = null;
+  [peopleUnsub, cyclesUnsub, settingsUnsub, suggestionsUnsub, directoryUnsub, selfDocUnsub, fullPeopleUnsub, subtreeUnsub].forEach(u=>{ if(u) u(); });
+  peopleUnsub = cyclesUnsub = settingsUnsub = suggestionsUnsub = directoryUnsub = selfDocUnsub = fullPeopleUnsub = subtreeUnsub = null;
+  RAW_PEOPLE = [];
+}
+
+// Only HR can read the whole `people` collection now (it holds email/role/manager-chain — the
+// sensitive fields). Everyone else's client only ever receives their own doc plus, if they manage
+// people, their own reporting subtree (via managerChain array-contains, enforced by the Firestore
+// rules — not just hidden in the UI). `directory` is a separate, intentionally minimal collection
+// (name/department/email/deactivated only, no role, no org chart) that every signed-in @plei.com
+// user can read — it's what powers "pick a colleague" pickers and showing your own manager's name,
+// without handing every employee's browser the full HR-sensitive record for the whole company.
+function recomputePeopleView(){
+  const dirMap = new Map((DB.directory||[]).map(d=>[d.id, d]));
+  const rawMap = new Map(RAW_PEOPLE.map(p=>[p.id, p]));
+  dirMap.forEach((d, id)=>{ if(!rawMap.has(id)) rawMap.set(id, Object.assign({id}, d)); });
+  DB.people = Array.from(rawMap.values());
+  onPeopleSynced();
 }
 
 let lastReviewListenerMode = null;
@@ -436,13 +453,36 @@ function onPeopleSynced(){
 
 function startBaseListeners(onFirstLoad){
   stopBaseListeners();
-  let pending = new Set(['people','cycles','settings']);
+  let pending = new Set(['people','cycles','settings','directory']);
   function done(key){ pending.delete(key); if(pending.size===0 && onFirstLoad){ const cb=onFirstLoad; onFirstLoad=null; cb(); } }
-  peopleUnsub = fdb.collection('people').onSnapshot(snap=>{
-    DB.people = snap.docs.map(d=>Object.assign({id:d.id}, d.data()));
-    onPeopleSynced();
-    done('people');
+  directoryUnsub = fdb.collection('directory').onSnapshot(snap=>{
+    DB.directory = snap.docs.map(d=>Object.assign({id:d.id}, d.data()));
+    recomputePeopleView();
+    done('directory');
     if(DB_LOADED) render();
+  }, e=>{ console.error(e); done('directory'); });
+  const myId = myLocalId(CURRENT_USER ? CURRENT_USER.email : '');
+  selfDocUnsub = fdb.collection('people').doc(myId).onSnapshot(doc=>{
+    const selfData = doc.exists ? Object.assign({id:doc.id}, doc.data()) : null;
+    const isHR = !!(selfData && selfData.role==='hr');
+    if(isHR){
+      if(!fullPeopleUnsub){
+        fullPeopleUnsub = fdb.collection('people').onSnapshot(snap=>{
+          RAW_PEOPLE = snap.docs.map(d=>Object.assign({id:d.id}, d.data()));
+          recomputePeopleView(); done('people'); if(DB_LOADED) render();
+        }, e=>{ console.error(e); done('people'); });
+      }
+    } else if(!subtreeUnsub){
+      subtreeUnsub = fdb.collection('people').where('managerChain','array-contains', myId).onSnapshot(snap=>{
+        const subtree = snap.docs.map(d=>Object.assign({id:d.id}, d.data()));
+        const self = doc.exists ? Object.assign({id:doc.id}, doc.data()) : null;
+        RAW_PEOPLE = self ? mergeById([self], subtree) : subtree;
+        recomputePeopleView(); done('people'); if(DB_LOADED) render();
+      }, e=>{ console.error(e); done('people'); });
+    } else if(selfData){
+      RAW_PEOPLE = mergeById([selfData], RAW_PEOPLE.filter(p=>p.id!==selfData.id));
+      recomputePeopleView(); done('people'); if(DB_LOADED) render();
+    }
   }, e=>{ console.error(e); done('people'); });
   cyclesUnsub = fdb.collection('cycles').onSnapshot(snap=>{
     DB.cycles = snap.docs.map(d=>Object.assign({id:d.id}, d.data()));
@@ -477,6 +517,31 @@ function getPerson(id){ return DB.people.find(p=>p.id===id); }
 function directReports(mgrId){ return DB.people.filter(p=>p.managerId===mgrId); }
 function hasReports(personId){ return DB.people.some(p=>p.managerId===personId); }
 function managersList(){ return DB.people.filter(p=>hasReports(p.id)); }
+
+// managerChain = list of ancestor manager IDs above a person ([directManagerId, skipManagerId, ...]).
+// It's what the Firestore rules check (myId() in resource.data.managerChain) to let a manager read
+// their own reporting subtree without opening up the whole `people` collection to everyone. Only HR
+// flows (editing org structure) ever call these — they rely on DB.people already holding the full
+// company list, which is only true when the signed-in user is HR.
+function computeChainFor(managerId){
+  const chain = []; let cur = managerId; let guard = 0;
+  while(cur && guard < 25){
+    if(chain.includes(cur)) break;
+    chain.push(cur);
+    const m = getPerson(cur);
+    cur = m ? m.managerId : null;
+    guard++;
+  }
+  return chain;
+}
+function applyChainRecursive(batch, personId, chain){
+  batch.update(fdb.collection('people').doc(personId), {managerChain: chain});
+  DB.people.filter(x=>x.managerId===personId).forEach(r=>applyChainRecursive(batch, r.id, [personId, ...chain]));
+}
+// directory mirrors only the non-sensitive fields (no role, no managerId, no invited/active) so any
+// signed-in @plei.com user can read it — it's what powers "pick a colleague" pickers and showing
+// someone's own manager's name, without exposing the org chart or who's HR to the whole company.
+function directoryFieldsFor(p){ return {name:p.name, department:p.department, email:p.email, deactivated: !!p.deactivated}; }
 function initials(name){ return name.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase(); }
 function peerCountFor(targetId, cycleId){ const d = DB.peerCounts.find(c=>c.id===targetId+'_'+cycleId); return d?d.count:0; }
 function upwardCountFor(managerId, cycleId){ const d = DB.upwardCounts.find(c=>c.id===managerId+'_'+cycleId); return d?d.count:0; }
@@ -1203,12 +1268,23 @@ function personModal(existingId){
       title:document.getElementById('pp_title').value.trim(), department:document.getElementById('pp_dept').value,
       role:document.getElementById('pp_role').value, managerId:document.getElementById('pp_mgr').value||null
     };
-    if(p){ await fdb.collection('people').doc(p.id).set(data, {merge:true}); }
-    else {
+    if(p){
+      const batch = fdb.batch();
+      batch.set(fdb.collection('people').doc(p.id), data, {merge:true});
+      batch.set(fdb.collection('directory').doc(p.id), directoryFieldsFor(data), {merge:true});
+      if(data.managerId !== (p.managerId||null)){
+        applyChainRecursive(batch, p.id, computeChainFor(data.managerId));
+      }
+      await batch.commit();
+    } else {
       const newId = email.split('@')[0].toLowerCase();
       const existing = await fdb.collection('people').doc(newId).get();
       if(existing.exists){ alert('A person with this email already exists.'); return; }
-      await fdb.collection('people').doc(newId).set(Object.assign({invited:false, active:false}, data));
+      const fullData = Object.assign({invited:false, active:false, managerChain: computeChainFor(data.managerId)}, data);
+      const batch = fdb.batch();
+      batch.set(fdb.collection('people').doc(newId), fullData);
+      batch.set(fdb.collection('directory').doc(newId), directoryFieldsFor(fullData));
+      await batch.commit();
     }
     document.getElementById('personModalBg').remove(); toast(p?'Person updated':'Person added — send them an invite so they can sign in'); render();
   });
@@ -1224,13 +1300,22 @@ async function deletePerson(id){
   if(!confirm(`Deactivate ${p.name}? They'll be hidden from pickers and department lists, but all of their review history stays intact and visible to HR. Anyone reporting to them will need a new manager assigned.`)) return;
   const batch = fdb.batch();
   batch.update(fdb.collection('people').doc(id), {deactivated:true, deactivatedAt:new Date().toISOString(), deactivatedBy:sessionPerson().email});
-  DB.people.forEach(x=>{ if(x.managerId===id) batch.update(fdb.collection('people').doc(x.id), {managerId:null}); });
+  batch.set(fdb.collection('directory').doc(id), {deactivated:true}, {merge:true});
+  DB.people.forEach(x=>{
+    if(x.managerId===id){
+      batch.update(fdb.collection('people').doc(x.id), {managerId:null});
+      applyChainRecursive(batch, x.id, []);
+    }
+  });
   await batch.commit();
   if(STATE.previewPersonId===id) STATE.previewPersonId=null;
   toast('Person deactivated — review history preserved'); render();
 }
 async function reactivatePerson(id){
-  await fdb.collection('people').doc(id).update({deactivated:false, deactivatedAt:null, deactivatedBy:null});
+  const batch = fdb.batch();
+  batch.update(fdb.collection('people').doc(id), {deactivated:false, deactivatedAt:null, deactivatedBy:null});
+  batch.set(fdb.collection('directory').doc(id), {deactivated:false}, {merge:true});
+  await batch.commit();
   toast('Person reactivated'); render();
 }
 
@@ -1274,7 +1359,10 @@ function deptModal(existingName){
       const newDepartments = DB.departments.map(d=>d===existingName?name:d);
       const batch = fdb.batch();
       batch.set(fdb.collection('settings').doc('main'), {companyDomain:DB.settings.companyDomain, departments:newDepartments}, {merge:true});
-      DB.people.filter(p=>p.department===existingName).forEach(p=>batch.update(fdb.collection('people').doc(p.id), {department:name}));
+      DB.people.filter(p=>p.department===existingName).forEach(p=>{
+        batch.update(fdb.collection('people').doc(p.id), {department:name});
+        batch.set(fdb.collection('directory').doc(p.id), {department:name}, {merge:true});
+      });
       await batch.commit();
     } else {
       await fdb.collection('settings').doc('main').set({companyDomain:DB.settings.companyDomain, departments:[...DB.departments, name]}, {merge:true});
