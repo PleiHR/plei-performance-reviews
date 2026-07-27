@@ -616,9 +616,10 @@ async function createGcalEvent({summary, description, startISO, durationMinutes,
     start: {dateTime: start.toISOString()},
     end: {dateTime: end.toISOString()},
     attendees: attendeeEmails.map(email=>({email})),
-    reminders: {useDefault:true}
+    reminders: {useDefault:true},
+    conferenceData: {createRequest: {requestId: uid('meet'), conferenceSolutionKey: {type:'hangoutsMeet'}}}
   };
-  return await gcalFetch('https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all', {
+  return await gcalFetch('https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all&conferenceDataVersion=1', {
     method:'POST',
     headers: {'Authorization':'Bearer '+token, 'Content-Type':'application/json'},
     body: JSON.stringify(body)
@@ -709,7 +710,7 @@ async function ensureOneOnOneTask(cycle, manager, employee){
     managerId: manager.id, managerEmail: manager.email, managerName: manager.name,
     status: 'pending',
     scheduledAt: null, durationMinutes: null,
-    gcalEventId: null, gcalEventLink: null,
+    gcalEventId: null, gcalEventLink: null, meetLink: null,
     completedAt: null,
     createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
   });
@@ -2106,6 +2107,7 @@ function viewMyReviews(cycle, person){
       if(myOneOnOne.status==='scheduled'){
         return `<div class="row" style="justify-content:space-between;">
           <span class="badge warn">${icon('calendar',11)} ${fmtDateTime(myOneOnOne.scheduledAt)}</span>
+          ${myOneOnOne.meetLink?`<a class="btn sm" href="${myOneOnOne.meetLink}" target="_blank" rel="noopener">Join Google Meet</a>`:''}
           ${myOneOnOne.gcalEventLink?`<a class="btn ghost sm" href="${myOneOnOne.gcalEventLink}" target="_blank" rel="noopener">View in Google Calendar</a>`:''}
         </div>`;
       }
@@ -2455,7 +2457,7 @@ function oneOnOneScheduleModal(cycle, manager, employee){
         managerId: manager.id, managerEmail: manager.email, managerName: manager.name,
         status: 'scheduled',
         scheduledAt: startISO, durationMinutes: dur,
-        gcalEventId: gcalEvent.id, gcalEventLink: gcalEvent.htmlLink,
+        gcalEventId: gcalEvent.id, gcalEventLink: gcalEvent.htmlLink, meetLink: gcalEvent.hangoutLink || null,
         updatedAt: new Date().toISOString()
       }, {merge:true});
       document.getElementById('oneOnOneModalBg').remove();
