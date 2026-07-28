@@ -1185,7 +1185,10 @@ function viewOrg(){
   <div class="card">
     <div class="row" style="justify-content:space-between;">
       <div><h2>Organization</h2><div class="desc">People, roles, departments, who reviews each person, and their sign-in access.</div></div>
-      <button class="btn" id="newPersonBtn">+ Add person</button>
+      <div class="row" style="gap:8px;">
+        ${DB.people.some(p=>!p.active && !p.deactivated) ? '<button class="btn secondary" id="inviteAllBtn">Invite all pending</button>' : ''}
+        <button class="btn" id="newPersonBtn">+ Add person</button>
+      </div>
     </div>
     <table>
       <thead><tr><th>Person</th><th>Role</th><th>Department</th><th>Title</th><th>Reviewed by</th><th>Access</th><th></th></tr></thead>
@@ -1320,14 +1323,19 @@ async function reactivatePerson(id){
   toast('Person reactivated'); render();
 }
 
-async function inviteModal(id){
-  const p = getPerson(id);
-  await fdb.collection('people').doc(id).set({invited:true, invitedAt:new Date().toISOString()}, {merge:true});
+function inviteEmailBody(p){
+  const loginUrl = 'https://performance.plei.com';
+  return '<p>Hi ' + p.name + ',</p>' +
+    '<p>You\'ve been added to <b>Plei Performance</b> \u2014 Plei\'s home for reviews, feedback, and 1-on-1s.</p>' +
+    '<p>Sign in with your Plei Google account (' + p.email + ') at <a href="' + loginUrl + '">' + loginUrl + '</a> to get started.</p>' +
+    '<p>\u2014 Plei Performance HR</p>';
+}
+function inviteFallbackModal(p, errMsg){
   const msg = `Hi ${p.name},\n\nYou've been added to Plei Performance. Please open the app and sign in with your Plei Google account (${p.email}) to get started.\n\n— HR`;
   const modalHtml = `<div class="modal-bg no-print" id="inviteModalBg"><div class="modal">
     <span class="close-x" id="closeInviteModal">✕</span>
-    <h3>Invite ready for ${p.name}</h3>
-    <div class="desc">This prototype can't send real emails yet — copy this message and share it however you normally would (email, Slack, etc). As soon as they sign in with ${p.email}, their account activates automatically.</div>
+    <h3>Couldn't email ${p.name} automatically</h3>
+    <div class="desc">${errMsg?escapeHtml(errMsg)+' ':''}Copy this message and share it however you normally would (email, Slack, etc). As soon as they sign in with ${p.email}, their account activates automatically.</div>
     <textarea id="inviteMsg" style="min-height:140px;" readonly>${msg}</textarea>
     <button class="btn" id="copyInviteBtn" style="width:100%;margin-top:10px;">Copy message</button>
   </div></div>`;
@@ -1337,7 +1345,39 @@ async function inviteModal(id){
     const ta = document.getElementById('inviteMsg'); ta.select();
     try{ navigator.clipboard.writeText(ta.value); toast('Copied to clipboard'); }catch(e){ try{ document.execCommand('copy'); toast('Copied'); }catch(e2){} }
   });
-  toast('Invite marked as sent');
+}
+async function inviteModal(id){
+  const p = getPerson(id);
+  try{
+    await sendGmail({to:p.email, subject:"You're invited to Plei Performance", bodyHtml:inviteEmailBody(p)});
+    await fdb.collection('people').doc(id).set({invited:true, invitedAt:new Date().toISOString()}, {merge:true});
+    toast('Invite emailed to ' + p.email);
+    render();
+  }catch(e){
+    console.error('sendGmail (invite) failed:', e);
+    await fdb.collection('people').doc(id).set({invited:true, invitedAt:new Date().toISOString()}, {merge:true});
+    inviteFallbackModal(p, e.message);
+    render();
+  }
+}
+async function inviteAllPending(){
+  const pending = DB.people.filter(p=>!p.active && !p.deactivated);
+  if(!pending.length){ toast('Nobody is pending invite'); return; }
+  if(!confirm(`Send a sign-in invite email to ${pending.length} ${pending.length===1?'person':'people'}?`)) return;
+  let sent = 0, failed = [];
+  for(const p of pending){
+    try{
+      await sendGmail({to:p.email, subject:"You're invited to Plei Performance", bodyHtml:inviteEmailBody(p)});
+      await fdb.collection('people').doc(p.id).set({invited:true, invitedAt:new Date().toISOString()}, {merge:true});
+      sent++;
+    }catch(e){
+      console.error('sendGmail (invite all) failed for ' + p.email + ':', e);
+      failed.push(p.name);
+    }
+  }
+  if(failed.length) toast(`Sent ${sent} invite(s). Failed for: ${failed.join(', ')}`);
+  else toast(`Sent ${sent} invite${sent===1?'':'s'}`);
+  render();
 }
 
 function deptModal(existingName){
@@ -2280,6 +2320,7 @@ function bindViewEvents(role, nav, cycle, person){
     toast('Domain saved'); render();
   });
   document.getElementById('newPersonBtn')?.addEventListener('click', ()=>personModal(null));
+  document.getElementById('inviteAllBtn')?.addEventListener('click', ()=>inviteAllPending());
   document.querySelectorAll('[data-edit-person]').forEach(el=>el.addEventListener('click', ()=>personModal(el.dataset.editPerson)));
   document.querySelectorAll('[data-delete-person]').forEach(el=>el.addEventListener('click', ()=>deletePerson(el.dataset.deletePerson)));
   document.querySelectorAll('[data-reactivate-person]').forEach(el=>el.addEventListener('click', ()=>reactivatePerson(el.dataset.reactivatePerson)));
