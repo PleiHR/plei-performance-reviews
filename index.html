@@ -1910,7 +1910,10 @@ function viewHowReviewsWork(person){
     <h2>How reviews work</h2>
     <div class="desc">Four types of feedback, each with different visibility rules. Knowing who sees what before you write anything is the whole point — candor depends on trusting these rules.</div>
     ${HOW_REVIEWS_WORK.map(t=>`<div class="quote-card">
-      <div class="meta">${t.type} · ${t.anon?'Anonymous':'Named'}</div>
+      <div style="font-family:var(--font-head);font-weight:700;font-size:17px;color:var(--cyprus);display:flex;align-items:center;gap:7px;margin-bottom:6px;">
+        ${t.anon?icon('lock',15):''}<span>${t.type}</span>
+        <span class="badge ${t.anon?'ok':'neutral'}" style="margin-left:2px;">${t.anon?'Anonymous':'Named'}</span>
+      </div>
       <div style="margin-bottom:6px;"><b>${t.who}</b></div>
       <p style="margin:0;">${t.detail}</p>
     </div>`).join('')}
