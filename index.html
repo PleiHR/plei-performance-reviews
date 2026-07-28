@@ -2063,7 +2063,6 @@ function viewUpwardForm(cycle, person){
   return `<div class="card">
     <h2>Review my manager <span class="badge" style="background:#e6f4ea;color:#137333;font-weight:600;">🔒 Anonymous</span></h2>
     <div class="desc">${cycle.label} · About <b>${mgr.name}</b> (${mgr.department}) — <b>this review is anonymous.</b> HR reads your responses first; ${mgr.name.split(' ')[0]} never sees your name or exact answers, only an HR-written summary.</div>
-    ${howReviewsWorkBlurb()}
     ${already?'<div class="row" style="margin-bottom:12px;"><span class="badge ok">You already submitted your review this cycle</span></div>':''}
     ${ratingLegendHTML()}
     <div id="upwardRatings">${UPWARD_RATINGS.map(f=>ratingRowHtml(f,0)).join('')}</div>
