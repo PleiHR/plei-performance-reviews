@@ -265,6 +265,23 @@ const UPWARD_FIELDS = [
 
 function uid(p){ return p + '_' + Math.random().toString(36).slice(2,9); }
 
+/* Local-only draft autosave: protects in-progress anonymous/long-form answers from
+   being wiped if a Firestore listener triggers a re-render while the tab was
+   backgrounded (e.g. the user tabs away mid-review and comes back later).
+   Never leaves the browser — cleared automatically once the review is submitted. */
+function draftKey(kind, cycleId, personId, extra){
+  return 'plei_draft_' + kind + '_' + cycleId + '_' + personId + (extra?('_'+extra):'');
+}
+function saveLocalDraft(key, data){
+  try{ localStorage.setItem(key, JSON.stringify(data)); }catch(e){}
+}
+function loadLocalDraft(key){
+  try{ const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : null; }catch(e){ return null; }
+}
+function clearLocalDraft(key){
+  try{ localStorage.removeItem(key); }catch(e){}
+}
+
 // Real Plei org chart, pulled from Rippling (Reports and Dashboards) on 2026-07-17.
 // role: 'hr' = full HR admin access · 'manager' = has direct reports · 'employee' = individual contributor.
 // Used only by the one-time "Seed real org data" bootstrap action below — not for local storage.
@@ -2030,13 +2047,17 @@ function viewPeerForm(cycle, person){
     </div>`;
   } else {
     const target = getPerson(targetId);
+    const peerDraft = loadLocalDraft(draftKey('peer', cycle.id, person.id, targetId)) || {};
+    const peerDraftRatings = peerDraft.ratings || {};
+    const peerDraftAnswers = peerDraft.answers || {};
     body = `<div class="row" style="margin-bottom:10px;"><span class="tag">${dept}</span><span class="tag">About ${target.name}</span><button class="btn ghost sm" data-cw-back-target="1">← Choose someone else</button></div>
     <h3 style="margin-top:0;">Ratings</h3>
     ${ratingLegendHTML()}
-    <div id="peerRatings">${PEER_RATINGS.map(f=>ratingRowHtml(f,0)).join('')}</div>
+    <div id="peerRatings">${PEER_RATINGS.map(f=>ratingRowHtml(f,peerDraftRatings[f.key]||0)).join('')}</div>
     <div class="divider"></div>
-    ${PEER_FIELDS.map(f=>`<div class="field"><label>${f.label}</label><div class="hint">${f.hint}</div><textarea data-peer-field="${f.key}"></textarea></div>`).join('')}
-    <button class="btn" id="submitPeerReview">Submit anonymously</button>`;
+    ${PEER_FIELDS.map(f=>`<div class="field"><label>${f.label}</label><div class="hint">${f.hint}</div><textarea data-peer-field="${f.key}">${peerDraftAnswers[f.key]?escapeHtml(peerDraftAnswers[f.key]):''}</textarea></div>`).join('')}
+    <button class="btn" id="submitPeerReview">Submit anonymously</button>
+    <div class="small muted" style="margin-top:8px;">Your answers save automatically in this browser as you type.</div>`;
   }
 
   return `<div class="card">
@@ -2063,16 +2084,20 @@ function viewUpwardForm(cycle, person){
   }
   const mgr = getPerson(person.managerId);
   const already = DB.upwardAuthorship.find(r=>r.cycleId===cycle.id && r.managerId===person.managerId);
+  const draft = loadLocalDraft(draftKey('upward', cycle.id, person.id)) || {};
+  const draftRatings = draft.ratings || {};
+  const draftAnswers = draft.answers || {};
   return `<div class="card">
     <h2>Review my manager <span class="badge" style="background:#e6f4ea;color:#137333;font-weight:600;">🔒 Anonymous</span></h2>
     <div class="desc">${cycle.label} · About <b>${mgr.name}</b> (${mgr.department}) — <b>this review is anonymous.</b> HR reads your responses first; ${mgr.name.split(' ')[0]} never sees your name or exact answers, only an HR-written summary.</div>
     <div class="hrw-note"><b>${icon('shield',14)} How this works:</b> This review does not go straight to ${mgr.name.split(' ')[0]}. It's anonymous and goes to HR only — HR reads every raw response, then writes an overall summary and decides what, if anything, to share with ${mgr.name.split(' ')[0]}. Your name and individual answers are never shared.</div>
     ${already?'<div class="row" style="margin-bottom:12px;"><span class="badge ok">You already submitted your review this cycle</span></div>':''}
     ${ratingLegendHTML()}
-    <div id="upwardRatings">${UPWARD_RATINGS.map(f=>ratingRowHtml(f,0)).join('')}</div>
+    <div id="upwardRatings">${UPWARD_RATINGS.map(f=>ratingRowHtml(f,draftRatings[f.key]||0)).join('')}</div>
     <div class="divider"></div>
-    ${UPWARD_FIELDS.map(f=>`<div class="field"><label>${f.label}</label><div class="hint">${f.hint}</div><textarea data-upward-field="${f.key}"></textarea></div>`).join('')}
+    ${UPWARD_FIELDS.map(f=>`<div class="field"><label>${f.label}</label><div class="hint">${f.hint}</div><textarea data-upward-field="${f.key}">${draftAnswers[f.key]?escapeHtml(draftAnswers[f.key]):''}</textarea></div>`).join('')}
     <button class="btn" id="submitUpwardReview" ${already?'disabled':''}>Submit anonymously</button>
+    <div class="small muted" style="margin-top:8px;">Your answers save automatically in this browser as you type, so nothing is lost if you switch tabs or step away.</div>
   </div>`;
 }
 function viewSuggestForm(person){
@@ -2591,12 +2616,23 @@ function bindPeerFormEvents(cycle, person){
 
   const submitBtn = document.getElementById('submitPeerReview');
   if(!submitBtn) return;
-  const ratings = {};
-  PEER_RATINGS.forEach(f=>bindRatingRow(document, f, val=>ratings[f.key]=val));
+  const targetId = STATE.cwTarget;
+  const pDraftKey = draftKey('peer', cycle.id, person.id, targetId);
+  const peerDraft = loadLocalDraft(pDraftKey) || {};
+  const ratings = Object.assign({}, peerDraft.ratings||{});
+  const persistPeerDraft = ()=>{
+    const answers = {};
+    PEER_FIELDS.forEach(f=>{ const el = document.querySelector(`[data-peer-field="${f.key}"]`); answers[f.key] = el?el.value:''; });
+    saveLocalDraft(pDraftKey, {ratings, answers});
+  };
+  PEER_RATINGS.forEach(f=>bindRatingRow(document, f, val=>{ ratings[f.key]=val; persistPeerDraft(); }));
+  PEER_FIELDS.forEach(f=>{
+    const el = document.querySelector(`[data-peer-field="${f.key}"]`);
+    if(el) el.addEventListener('input', persistPeerDraft);
+  });
   submitBtn.addEventListener('click', async ()=>{
     const missing = PEER_RATINGS.filter(f=>!ratings[f.key]);
     if(missing.length){ alert('Please complete the ratings before submitting.'); return; }
-    const targetId = STATE.cwTarget;
     const target = getPerson(targetId);
     const targetMgr = target.managerId ? getPerson(target.managerId) : null;
     const answers = {};
@@ -2618,6 +2654,7 @@ function bindPeerFormEvents(cycle, person){
         });
         tx.set(countRef, {count:newCount}, {merge:true});
       });
+      clearLocalDraft(pDraftKey);
       toast('Feedback submitted anonymously');
       STATE.cwDept = null; STATE.cwTarget = null;
       render();
@@ -2628,8 +2665,19 @@ function bindPeerFormEvents(cycle, person){
 function bindUpwardFormEvents(cycle, person){
   const submitBtn = document.getElementById('submitUpwardReview');
   if(!submitBtn) return;
-  const ratings = {};
-  UPWARD_RATINGS.forEach(f=>bindRatingRow(document, f, val=>ratings[f.key]=val));
+  const dKey = draftKey('upward', cycle.id, person.id);
+  const draft = loadLocalDraft(dKey) || {};
+  const ratings = Object.assign({}, draft.ratings||{});
+  const persistDraft = ()=>{
+    const answers = {};
+    UPWARD_FIELDS.forEach(f=>{ const el = document.querySelector(`[data-upward-field="${f.key}"]`); answers[f.key] = el?el.value:''; });
+    saveLocalDraft(dKey, {ratings, answers});
+  };
+  UPWARD_RATINGS.forEach(f=>bindRatingRow(document, f, val=>{ ratings[f.key]=val; persistDraft(); }));
+  UPWARD_FIELDS.forEach(f=>{
+    const el = document.querySelector(`[data-upward-field="${f.key}"]`);
+    if(el) el.addEventListener('input', persistDraft);
+  });
   submitBtn.addEventListener('click', async ()=>{
     const missing = UPWARD_RATINGS.filter(f=>!ratings[f.key]);
     if(missing.length){ alert('Please complete the ratings before submitting.'); return; }
@@ -2651,6 +2699,7 @@ function bindUpwardFormEvents(cycle, person){
         });
         tx.set(countRef, {count:newCount}, {merge:true});
       });
+      clearLocalDraft(dKey);
       toast('Review submitted anonymously to HR'); render();
     } catch(e){ console.error(e); alert('Could not submit — please try again.'); submitBtn.disabled = false; }
   });
