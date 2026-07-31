@@ -2055,10 +2055,9 @@ function viewPeerForm(cycle, person){
       <div class="pill-select">
         ${people.length ? people.map(p=>{
           const already = mine.find(r=>r.targetId===p.id);
-          const label = p.name + (p.deactivated ? ' <span class="muted small">(no longer at Plei)</span>' : '');
           return already
-            ? `<div class="pill" style="opacity:.5;cursor:default;">${label} · already submitted</div>`
-            : `<div class="pill" data-cw-target="${p.id}">${label}</div>`;
+            ? `<div class="pill" style="opacity:.5;cursor:default;">${p.name} · already submitted</div>`
+            : `<div class="pill" data-cw-target="${p.id}">${p.name}</div>`;
         }).join('') : '<div class="empty">No one else in this department.</div>'}
       </div>
     </div>`;
