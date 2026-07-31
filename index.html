@@ -558,7 +558,7 @@ function applyChainRecursive(batch, personId, chain){
 // directory mirrors only the non-sensitive fields (no role, no managerId, no invited/active) so any
 // signed-in @plei.com user can read it — it's what powers "pick a colleague" pickers and showing
 // someone's own manager's name, without exposing the org chart or who's HR to the whole company.
-function directoryFieldsFor(p){ return {name:p.name, department:p.department, email:p.email, deactivated: !!p.deactivated}; }
+function directoryFieldsFor(p){ return {name:p.name, department:p.department, email:p.email, deactivated: !!p.deactivated, visibleInFeedback: !!p.visibleInFeedback}; }
 function initials(name){ return name.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase(); }
 function peerCountFor(targetId, cycleId){ const d = DB.peerCounts.find(c=>c.id===targetId+'_'+cycleId); return d?d.count:0; }
 function upwardCountFor(managerId, cycleId){ const d = DB.upwardCounts.find(c=>c.id===managerId+'_'+cycleId); return d?d.count:0; }
@@ -1218,12 +1218,14 @@ function viewOrg(){
           <td class="muted small">${p.managerId?(getPerson(p.managerId)?getPerson(p.managerId).name:'—'):'—'}</td>
           <td>
             ${p.deactivated?'<span class="badge bad">Deactivated</span>':p.active?'<span class="badge ok">Active</span>':p.invited?'<span class="badge warn">Invited</span>':'<span class="badge neutral">Not invited</span>'}
+            ${p.deactivated && p.visibleInFeedback?'<span class="badge warn">In feedback this cycle</span>':''}
             ${!p.active && !p.deactivated?`<button class="btn ghost sm" data-invite-person="${p.id}">${p.invited?'Resend':'Send invite'}</button>`:''}
           </td>
           <td>
             <button class="btn ghost sm" data-edit-person="${p.id}">Edit</button>
             ${p.deactivated
-              ? `<button class="btn secondary sm" data-reactivate-person="${p.id}">Reactivate</button>`
+              ? `<button class="btn secondary sm" data-reactivate-person="${p.id}">Reactivate</button>
+                 <button class="btn ghost sm" data-toggle-feedback-visible="${p.id}">${p.visibleInFeedback?'Remove from feedback':'Include in feedback'}</button>`
               : `<button class="btn danger sm" data-delete-person="${p.id}">Deactivate</button>`}
           </td>
         </tr>`).join('')}
@@ -1338,6 +1340,20 @@ async function reactivatePerson(id){
   batch.set(fdb.collection('directory').doc(id), {deactivated:false}, {merge:true});
   await batch.commit();
   toast('Person reactivated'); render();
+}
+async function toggleFeedbackVisible(id){
+  // Lets HR keep a deactivated/terminated person selectable in Company Wide Feedback for a
+  // specific cycle (e.g. wrapping up feedback about someone who just left), without reactivating
+  // their account or restoring their access anywhere else in the app.
+  const p = getPerson(id);
+  if(!p) return;
+  const next = !p.visibleInFeedback;
+  const batch = fdb.batch();
+  batch.update(fdb.collection('people').doc(id), {visibleInFeedback: next});
+  batch.set(fdb.collection('directory').doc(id), {visibleInFeedback: next}, {merge:true});
+  await batch.commit();
+  toast(next ? `${p.name} can now be selected in Company Wide Feedback` : `${p.name} removed from Company Wide Feedback`);
+  render();
 }
 
 function inviteEmailBody(p){
@@ -2019,7 +2035,7 @@ function viewPeerForm(cycle, person){
   const mine = DB.peerAuthorship.filter(r=>r.cycleId===cycle.id && r.authorEmail===person.email);
   const dept = STATE.cwDept;
   const targetId = STATE.cwTarget;
-  const depts = Array.from(new Set(DB.people.filter(p=>!p.deactivated).map(p=>p.department))).sort();
+  const depts = Array.from(new Set(DB.people.filter(p=>!p.deactivated || p.visibleInFeedback).map(p=>p.department))).sort();
 
   const explainer = `<div class="hrw-note"><b>${icon('shield',14)} How this works:</b> Company wide feedback is anonymous and completely optional — nobody is assigned to review you, and you don't need to be asked to give feedback. Use it to share something positive about a colleague, or to flag a concern or a negative aspect you think needs attention. Pick a department, then the person, then leave your feedback. Your feedback goes to HR only — the person and their manager never see raw feedback or who wrote it, only a summary HR shares once enough responses come in.</div>`;
 
@@ -2032,16 +2048,17 @@ function viewPeerForm(cycle, person){
       </div>
     </div>`;
   } else if(!targetId){
-    const people = DB.people.filter(p=>p.department===dept && p.id!==person.id && !p.deactivated);
+    const people = DB.people.filter(p=>p.department===dept && p.id!==person.id && (!p.deactivated || p.visibleInFeedback));
     body = `<div class="row" style="margin-bottom:10px;"><span class="tag">${dept}</span><button class="btn ghost sm" data-cw-back-dept="1">← Change department</button></div>
     <div class="field">
       <label>Who would you like to give feedback to?</label>
       <div class="pill-select">
         ${people.length ? people.map(p=>{
           const already = mine.find(r=>r.targetId===p.id);
+          const label = p.name + (p.deactivated ? ' <span class="muted small">(no longer at Plei)</span>' : '');
           return already
-            ? `<div class="pill" style="opacity:.5;cursor:default;">${p.name} · already submitted</div>`
-            : `<div class="pill" data-cw-target="${p.id}">${p.name}</div>`;
+            ? `<div class="pill" style="opacity:.5;cursor:default;">${label} · already submitted</div>`
+            : `<div class="pill" data-cw-target="${p.id}">${label}</div>`;
         }).join('') : '<div class="empty">No one else in this department.</div>'}
       </div>
     </div>`;
@@ -2351,6 +2368,7 @@ function bindViewEvents(role, nav, cycle, person){
   document.querySelectorAll('[data-edit-person]').forEach(el=>el.addEventListener('click', ()=>personModal(el.dataset.editPerson)));
   document.querySelectorAll('[data-delete-person]').forEach(el=>el.addEventListener('click', ()=>deletePerson(el.dataset.deletePerson)));
   document.querySelectorAll('[data-reactivate-person]').forEach(el=>el.addEventListener('click', ()=>reactivatePerson(el.dataset.reactivatePerson)));
+  document.querySelectorAll('[data-toggle-feedback-visible]').forEach(el=>el.addEventListener('click', ()=>toggleFeedbackVisible(el.dataset.toggleFeedbackVisible)));
   document.querySelectorAll('[data-invite-person]').forEach(el=>el.addEventListener('click', ()=>inviteModal(el.dataset.invitePerson)));
   document.getElementById('newDeptBtn')?.addEventListener('click', ()=>deptModal(null));
   document.querySelectorAll('[data-edit-dept]').forEach(el=>el.addEventListener('click', ()=>deptModal(el.dataset.editDept)));
