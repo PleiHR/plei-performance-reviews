@@ -1514,7 +1514,10 @@ function viewPeerHR(cycle){
   const byTarget = {};
   reviews.forEach(r=>{ (byTarget[r.targetId] = byTarget[r.targetId]||[]).push(r); });
 
-  const coverageRows = DB.people.filter(p=>!p.deactivated).map(p=>{
+  // Include deactivated people too if they actually received feedback this cycle (or are
+  // still marked visible for feedback) — otherwise someone like a just-terminated employee
+  // would silently disappear from this summary even though HR still needs to see their counts.
+  const coverageRows = DB.people.filter(p=>!p.deactivated || p.visibleInFeedback || byTarget[p.id]).map(p=>{
     const count = peerCountFor(p.id, cycle.id);
     return {p, count};
   }).sort((a,b)=>b.count-a.count);
