@@ -531,7 +531,7 @@ function currentPerson(){ return DB.people.find(p=>p.id===STATE.viewAs); }
 function sessionPerson(){ return DB.people.find(p=>p.id===STATE.sessionPersonId); }
 function getCycle(id){ return DB.cycles.find(c=>c.id===id); }
 function getPerson(id){ return DB.people.find(p=>p.id===id); }
-function directReports(mgrId){ return DB.people.filter(p=>p.managerId===mgrId); }
+function directReports(mgrId){ return DB.people.filter(p=>p.managerId===mgrId && !p.deactivated); }
 function hasReports(personId){ return DB.people.some(p=>p.managerId===personId); }
 function managersList(){ return DB.people.filter(p=>hasReports(p.id)); }
 
