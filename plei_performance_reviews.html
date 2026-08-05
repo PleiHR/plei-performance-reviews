@@ -1548,6 +1548,7 @@ function viewPeerHR(cycle){
       const avgScore = avg(list.map(ratingAvgOfReview).filter(Boolean));
       const lowCount = list.length < ANONYMITY_MIN;
       const summary = peerSummaryFor(tid, cycle.id);
+      const summaryDraft = loadLocalDraft(draftKey('peerSummary', cycle.id, tid));
       return `<div style="margin-bottom:18px;">
         <div class="row" style="justify-content:space-between;">
           <div class="person-cell"><div class="avatar">${initials(person.name)}</div><b>${person.name}</b><span class="tag">${person.department}</span></div>
@@ -1561,7 +1562,7 @@ function viewPeerHR(cycle){
         </div>`).join('')}
         ${lowCount ? `<div class="login-note">Heads up: fewer than ${ANONYMITY_MIN} responses — summarizing very specific wording could make it easier to guess who wrote it. You can still publish whenever you're ready.</div>` : ''}
         <div class="field"><label>Summary to share with ${person.name} and their manager</label><div class="hint">Summarize the raw feedback above in your own words — this is what they'll see, never the raw quotes.</div>
-          <textarea data-peer-summary-themes="${tid}">${summary?summary.themes||'':''}</textarea>
+          <textarea data-peer-summary-themes="${tid}">${summaryDraft&&summaryDraft.themes!==undefined?escapeHtml(summaryDraft.themes):(summary?escapeHtml(summary.themes||''):'')}</textarea>
         </div>
         <div class="row">
           <button class="btn sm" data-publish-peer-summary="${tid}">${summary&&summary.published?'Update published summary':'Publish summary'}</button>
@@ -1583,6 +1584,7 @@ function viewUpwardHR(cycle){
       const avgScore = avg(list.map(ratingAvgOfReview).filter(Boolean));
       const teamSize = directReports(m.id).length;
       const summary = upwardSummaryFor(m.id, cycle.id);
+      const summaryDraft = loadLocalDraft(draftKey('summary', cycle.id, m.id));
       const lowCount = list.length>0 && list.length < ANONYMITY_MIN;
       const skipMgr = m.managerId ? getPerson(m.managerId) : null;
       const curRecipients = summary ? (summary.recipients || 'manager') : 'manager';
@@ -1601,7 +1603,7 @@ function viewUpwardHR(cycle){
         <div class="divider"></div>
         ${lowCount ? `<div class="login-note">Heads up: fewer than ${ANONYMITY_MIN} responses — consider delivering themes verbally instead of publishing in the app, to protect anonymity. You can still publish whenever you're ready.</div>` : ''}
         <div class="field"><label>Overall summary and evaluation for ${m.name}</label><div class="hint">Analyze the raw feedback above and write your own summary — this is what gets sent, never the raw quotes.</div>
-          <textarea data-summary-themes="${m.id}">${summary?summary.themes||'':''}</textarea>
+          <textarea data-summary-themes="${m.id}">${summaryDraft&&summaryDraft.themes!==undefined?escapeHtml(summaryDraft.themes):(summary?escapeHtml(summary.themes||''):'')}</textarea>
         </div>
         <div class="field"><label>Who should receive this?</label>
           <select data-summary-recipients="${m.id}">
@@ -1899,19 +1901,22 @@ function viewManagerReviewForm(cycle, manager, employee){
 function viewSelfForm(cycle, person){
   const existing = findReview('self', cycle.id, x=>x.employeeId===person.id);
   const submitted = existing && existing.status==='submitted';
+  const draft = loadLocalDraft(draftKey('self', cycle.id, person.id)) || {};
+  const draftAnswers = draft.answers || {};
   return `<div class="card">
     <h2>My self-review</h2>
     <div class="desc">${cycle.label} · ${person.name} · ${person.title} · ${person.department}</div>
     ${submitted?'<div class="row" style="margin-bottom:12px;"><span class="badge ok">Submitted</span></div>':''}
     ${SELF_FIELDS.map(f=>`<div class="field">
       <label>${f.label}</label><div class="hint">${f.hint}</div>
-      <textarea data-self-field="${f.key}">${existing?escapeHtml(existing.answers[f.key]):''}</textarea>
+      <textarea data-self-field="${f.key}">${draftAnswers[f.key]!==undefined ? escapeHtml(draftAnswers[f.key]) : (existing?escapeHtml(existing.answers[f.key]):'')}</textarea>
     </div>`).join('')}
     <div class="row">
       <button class="btn" id="submitSelfReview">Submit self-review</button>
       <button class="btn secondary" id="saveDraftSelfReview">Save draft</button>
       ${submitted?`<button class="btn ghost" id="printSelfBtn">🖨️ Download PDF</button>`:''}
     </div>
+    ${submitted?'':'<div class="small muted" style="margin-top:8px;">Your answers save automatically in this browser as you type, so nothing is lost if you switch tabs or step away.</div>'}
   </div>`;
 }
 
@@ -2124,15 +2129,18 @@ function viewUpwardForm(cycle, person){
   </div>`;
 }
 function viewSuggestForm(person){
+  const draft = loadLocalDraft(draftKey('suggest', 'all', person.id)) || {};
+  const cats = ['Culture','Process','Benefits','Leadership','Other'];
   return `<div class="card">
     <h2>Leave a suggestion</h2>
     <div class="desc">Ideas, proposals, or things to improve in general at the company. You can leave it anonymous or with your name.</div>
     <div class="field"><label>Category</label>
-      <select id="sg_cat"><option>Culture</option><option>Process</option><option>Benefits</option><option>Leadership</option><option>Other</option></select>
+      <select id="sg_cat">${cats.map(c=>`<option ${draft.category===c?'selected':''}>${c}</option>`).join('')}</select>
     </div>
-    <div class="field"><label>Your suggestion</label><textarea id="sg_text" placeholder="Write your idea or proposal here..."></textarea></div>
-    <div class="checkbox-row" style="margin-bottom:14px;"><input type="checkbox" id="sg_anon" checked><label for="sg_anon">Submit anonymously</label></div>
+    <div class="field"><label>Your suggestion</label><textarea id="sg_text" placeholder="Write your idea or proposal here...">${draft.text?escapeHtml(draft.text):''}</textarea></div>
+    <div class="checkbox-row" style="margin-bottom:14px;"><input type="checkbox" id="sg_anon" ${draft.anon===false?'':'checked'}><label for="sg_anon">Submit anonymously</label></div>
     <button class="btn" id="submitSuggestion">Submit suggestion</button>
+    <div class="small muted" style="margin-top:8px;">Your answer saves automatically in this browser as you type, so nothing is lost if you switch tabs or step away.</div>
   </div>
   <div class="hrw-note" style="margin-top:14px;"><b>Only HR can read these.</b> Suggestions aren't shared with the rest of the company or with managers.</div>`;
 }
@@ -2450,6 +2458,16 @@ function bindViewEvents(role, nav, cycle, person){
       alert(e.message || 'Could not add this to your Google Calendar. Please try again.');
     }
   });
+  document.querySelectorAll('[data-summary-themes]').forEach(el=>{
+    const mid = el.dataset.summaryThemes;
+    const c = getCycle(STATE.activeCycleId);
+    el.addEventListener('input', ()=>{ saveLocalDraft(draftKey('summary', c.id, mid), {themes: el.value}); });
+  });
+  document.querySelectorAll('[data-peer-summary-themes]').forEach(el=>{
+    const tid2 = el.dataset.peerSummaryThemes;
+    const c = getCycle(STATE.activeCycleId);
+    el.addEventListener('input', ()=>{ saveLocalDraft(draftKey('peerSummary', c.id, tid2), {themes: el.value}); });
+  });
   document.querySelectorAll('[data-publish-summary]').forEach(el=>el.addEventListener('click', async ()=>{
     const managerId = el.dataset.publishSummary;
     const manager = getPerson(managerId);
@@ -2483,6 +2501,7 @@ function bindViewEvents(role, nav, cycle, person){
         });
       }
     }catch(e){ console.error('sendGmail (upward summary published) failed:', e); }
+    clearLocalDraft(draftKey('summary', cycle.id, managerId));
     toast('Summary sent'); render();
   }));
   document.querySelectorAll('[data-publish-peer-summary]').forEach(el=>el.addEventListener('click', async ()=>{
@@ -2500,6 +2519,7 @@ function bindViewEvents(role, nav, cycle, person){
       targetEmail: target.email, managerEmail: targetMgr?targetMgr.email:null,
       avgRatings, themes, responseCount:list.length, published:true, publishedAt:new Date().toISOString()
     }, {merge:true});
+    clearLocalDraft(draftKey('peerSummary', cycle.id, targetId));
     toast('Summary published to person and manager'); render();
   }));
 }
@@ -2616,11 +2636,17 @@ function bindSelfFormEvents(cycle, person){
   const submitBtn = document.getElementById('submitSelfReview');
   const draftBtn = document.getElementById('saveDraftSelfReview');
   if(!submitBtn && !draftBtn) return;
+  const dKey = draftKey('self', cycle.id, person.id);
   function collect(){
     const answers = {};
     SELF_FIELDS.forEach(f=>{ const el = document.querySelector(`[data-self-field="${f.key}"]`); answers[f.key]=el?el.value:''; });
     return answers;
   }
+  const persistDraft = ()=>{ saveLocalDraft(dKey, {answers: collect()}); };
+  SELF_FIELDS.forEach(f=>{
+    const el = document.querySelector(`[data-self-field="${f.key}"]`);
+    if(el) el.addEventListener('input', persistDraft);
+  });
   async function upsert(status){
     const rev = findReview('self', cycle.id, x=>x.employeeId===person.id);
     const id = rev ? rev.id : uid('sr');
@@ -2630,8 +2656,8 @@ function bindSelfFormEvents(cycle, person){
       answers: collect(), status, submittedAt:new Date().toISOString()
     }, {merge:true});
   }
-  submitBtn?.addEventListener('click', async ()=>{ await upsert('submitted'); toast('Self-review submitted — your manager can now read it'); render(); });
-  draftBtn?.addEventListener('click', async ()=>{ await upsert('draft'); toast('Draft saved'); });
+  submitBtn?.addEventListener('click', async ()=>{ await upsert('submitted'); clearLocalDraft(dKey); toast('Self-review submitted — your manager can now read it'); render(); });
+  draftBtn?.addEventListener('click', async ()=>{ await upsert('draft'); clearLocalDraft(dKey); toast('Draft saved'); });
 }
 
 function bindPeerFormEvents(cycle, person){
@@ -2739,12 +2765,21 @@ function bindUpwardFormEvents(cycle, person){
 function bindSuggestFormEvents(person){
   const submitBtn = document.getElementById('submitSuggestion');
   if(!submitBtn) return;
+  const dKey = draftKey('suggest', 'all', person.id);
+  const textEl = document.getElementById('sg_text');
+  const catEl = document.getElementById('sg_cat');
+  const anonEl = document.getElementById('sg_anon');
+  const persistDraft = ()=>{ saveLocalDraft(dKey, {text: textEl.value, category: catEl.value, anon: anonEl.checked}); };
+  textEl?.addEventListener('input', persistDraft);
+  catEl?.addEventListener('change', persistDraft);
+  anonEl?.addEventListener('change', persistDraft);
   submitBtn.addEventListener('click', async ()=>{
-    const text = document.getElementById('sg_text').value.trim();
+    const text = textEl.value.trim();
     if(!text){ alert('Please write your suggestion.'); return; }
-    const anon = document.getElementById('sg_anon').checked;
+    const anon = anonEl.checked;
     await fdb.collection('suggestions').doc(uid('sg')).set({cycleId:STATE.activeCycleId, anonymous:anon, authorName:anon?'':person.name,
-      category:document.getElementById('sg_cat').value, text, createdAt:new Date().toISOString().slice(0,10)});
+      category:catEl.value, text, createdAt:new Date().toISOString().slice(0,10)});
+    clearLocalDraft(dKey);
     toast('Suggestion submitted'); render();
   });
 }
