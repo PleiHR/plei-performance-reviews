@@ -2116,17 +2116,19 @@ function viewUpwardForm(cycle, person){
   const draft = loadLocalDraft(draftKey('upward', cycle.id, person.id)) || {};
   const draftRatings = draft.ratings || {};
   const draftAnswers = draft.answers || {};
+  const savedRatings = already ? (already.ratings || {}) : {};
+  const savedAnswers = already ? (already.answers || {}) : {};
   return `<div class="card">
     <h2>Review my manager <span class="badge" style="background:#e6f4ea;color:#137333;font-weight:600;">🔒 Anonymous</span></h2>
     <div class="desc">${cycle.label} · About <b>${mgr.name}</b> (${mgr.department}) — <b>this review is anonymous.</b> HR reads your responses first; ${mgr.name.split(' ')[0]} never sees your name or exact answers, only an HR-written summary.</div>
     <div class="hrw-note"><b>${icon('shield',14)} How this works:</b> This review does not go straight to ${mgr.name.split(' ')[0]}. It's anonymous and goes to HR only — HR reads every raw response, then writes an overall summary and decides what, if anything, to share with ${mgr.name.split(' ')[0]}. Your name and individual answers are never shared.</div>
-    ${already?'<div class="row" style="margin-bottom:12px;"><span class="badge ok">You already submitted your review this cycle</span></div>':''}
+    ${already?'<div class="row" style="margin-bottom:12px;"><span class="badge ok">You already submitted your review this cycle — here\'s what you sent (read-only)</span></div>':''}
     ${ratingLegendHTML()}
-    <div id="upwardRatings">${UPWARD_RATINGS.map(f=>ratingRowHtml(f,draftRatings[f.key]||0)).join('')}</div>
+    <div id="upwardRatings">${UPWARD_RATINGS.map(f=>ratingRowHtml(f, already?(savedRatings[f.key]||0):(draftRatings[f.key]||0))).join('')}</div>
     <div class="divider"></div>
-    ${UPWARD_FIELDS.map(f=>`<div class="field"><label>${f.label}</label><div class="hint">${f.hint}</div><textarea data-upward-field="${f.key}">${draftAnswers[f.key]?escapeHtml(draftAnswers[f.key]):''}</textarea></div>`).join('')}
-    <button class="btn" id="submitUpwardReview" ${already?'disabled':''}>Submit anonymously</button>
-    <div class="small muted" style="margin-top:8px;">Your answers save automatically in this browser as you type, so nothing is lost if you switch tabs or step away.</div>
+    ${UPWARD_FIELDS.map(f=>`<div class="field"><label>${f.label}</label><div class="hint">${f.hint}</div><textarea data-upward-field="${f.key}" ${already?'readonly':''}>${already?escapeHtml(savedAnswers[f.key]||''):(draftAnswers[f.key]?escapeHtml(draftAnswers[f.key]):'')}</textarea></div>`).join('')}
+    ${already?'':`<button class="btn" id="submitUpwardReview">Submit anonymously</button>
+    <div class="small muted" style="margin-top:8px;">Your answers save automatically in this browser as you type, so nothing is lost if you switch tabs or step away.</div>`}
   </div>`;
 }
 function viewSuggestForm(person){
