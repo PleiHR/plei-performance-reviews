@@ -1866,6 +1866,9 @@ function upwardSummaryModal(cycle, managerPerson){
 function viewManagerReviewForm(cycle, manager, employee){
   const existing = findReview('manager', cycle.id, x=>x.employeeId===employee.id);
   const selfRev = findReview('self', cycle.id, x=>x.employeeId===employee.id);
+  const draft = loadLocalDraft(draftKey('manager', cycle.id, employee.id)) || {};
+  const draftRatings = draft.ratings || {};
+  const draftAnswers = draft.answers || {};
   return `<div class="card">
     <div class="row" style="justify-content:space-between;">
       <h2>Manager review — ${employee.name}</h2>
@@ -1878,16 +1881,17 @@ function viewManagerReviewForm(cycle, manager, employee){
     <div class="divider"></div>
     <h3 style="margin-top:0;">Ratings</h3>
     ${ratingLegendHTML()}
-    <div id="mgrRatings">${MANAGER_RATINGS.map(f=>ratingRowHtml(f, existing&&existing.ratings?existing.ratings[f.key]:0)).join('')}</div>
+    <div id="mgrRatings">${MANAGER_RATINGS.map(f=>ratingRowHtml(f, draftRatings[f.key] || (existing&&existing.ratings?existing.ratings[f.key]:0))).join('')}</div>
     <div class="divider"></div>
     ${MANAGER_FIELDS.map(f=>`<div class="field">
       <label>${f.label}</label><div class="hint">${f.hint}</div>
-      <textarea data-mgr-field="${f.key}">${existing?escapeHtml(existing.answers[f.key]):''}</textarea>
+      <textarea data-mgr-field="${f.key}">${draftAnswers[f.key]!==undefined ? escapeHtml(draftAnswers[f.key]) : (existing?escapeHtml(existing.answers[f.key]):'')}</textarea>
     </div>`).join('')}
     <div class="row">
       <button class="btn" id="submitManagerReview">Submit review</button>
       <button class="btn secondary" id="saveDraftManagerReview">Save draft</button>
     </div>
+    <div class="small muted" style="margin-top:8px;">Your answers save automatically in this browser as you type, so nothing is lost if you switch tabs or step away.</div>
   </div>`;
 }
 
@@ -2561,15 +2565,22 @@ function oneOnOneScheduleModal(cycle, manager, employee){
 function bindManagerFormEvents(cycle, manager, employee){
   const host = document.getElementById('managerFormHost');
   const existing = findReview('manager', cycle.id, x=>x.employeeId===employee.id) || {ratings:{}, answers:{}};
-  const ratings = Object.assign({}, existing.ratings);
-  MANAGER_RATINGS.forEach(f=>bindRatingRow(host, f, val=>ratings[f.key]=val));
-  host.querySelector('[data-close-manager-form]')?.addEventListener('click', ()=>{ host.innerHTML=''; });
-
+  const dKey = draftKey('manager', cycle.id, employee.id);
+  const draft = loadLocalDraft(dKey) || {};
+  const ratings = Object.assign({}, existing.ratings, draft.ratings||{});
   function collectAnswers(){
     const answers = {};
     MANAGER_FIELDS.forEach(f=>{ answers[f.key] = host.querySelector(`[data-mgr-field="${f.key}"]`).value; });
     return answers;
   }
+  const persistDraft = ()=>{ saveLocalDraft(dKey, {ratings, answers: collectAnswers()}); };
+  MANAGER_RATINGS.forEach(f=>bindRatingRow(host, f, val=>{ ratings[f.key]=val; persistDraft(); }));
+  MANAGER_FIELDS.forEach(f=>{
+    const el = host.querySelector(`[data-mgr-field="${f.key}"]`);
+    if(el) el.addEventListener('input', persistDraft);
+  });
+  host.querySelector('[data-close-manager-form]')?.addEventListener('click', ()=>{ host.innerHTML=''; });
+
   async function upsert(status){
     const rev = findReview('manager', cycle.id, x=>x.employeeId===employee.id);
     const id = rev ? rev.id : uid('mr');
@@ -2583,6 +2594,7 @@ function bindManagerFormEvents(cycle, manager, employee){
     const missing = MANAGER_RATINGS.filter(f=>!ratings[f.key]);
     if(missing.length){ alert('Please complete all ratings before submitting.'); return; }
     await upsert('submitted');
+    clearLocalDraft(dKey);
     await ensureOneOnOneTask(cycle, manager, employee);
     try{
       await sendGmail({
@@ -2597,7 +2609,7 @@ function bindManagerFormEvents(cycle, manager, employee){
     }catch(e){ console.error('sendGmail (review submitted) failed:', e); }
     toast('Review submitted — don\'t forget to schedule the 1:1 debrief'); render();
   });
-  host.querySelector('#saveDraftManagerReview')?.addEventListener('click', async ()=>{ await upsert('draft'); toast('Draft saved'); });
+  host.querySelector('#saveDraftManagerReview')?.addEventListener('click', async ()=>{ await upsert('draft'); clearLocalDraft(dKey); toast('Draft saved'); });
 }
 
 function bindSelfFormEvents(cycle, person){
