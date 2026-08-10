@@ -2113,21 +2113,26 @@ function viewUpwardForm(cycle, person){
   }
   const mgr = getPerson(person.managerId);
   const already = DB.upwardAuthorship.find(r=>r.cycleId===cycle.id && r.managerId===person.managerId);
-  const draft = loadLocalDraft(draftKey('upward', cycle.id, person.id)) || {};
-  const draftRatings = draft.ratings || {};
-  const draftAnswers = draft.answers || {};
-  const savedRatings = already ? (already.ratings || {}) : {};
-  const savedAnswers = already ? (already.answers || {}) : {};
+  const countDoc = DB.upwardCounts.find(c=>c.id===person.managerId+'_'+cycle.id);
+  const locked = !!(already && countDoc && countDoc.summaryPublished);
+  const draft = (!locked) ? (loadLocalDraft(draftKey('upward', cycle.id, person.id)) || {}) : {};
+  const baseRatings = already ? (already.ratings || {}) : {};
+  const baseAnswers = already ? (already.answers || {}) : {};
+  const curRatings = Object.assign({}, baseRatings, draft.ratings || {});
+  const curAnswers = Object.assign({}, baseAnswers, draft.answers || {});
+  let statusNote = '';
+  if(locked) statusNote = '<div class="row" style="margin-bottom:12px;"><span class="badge ok">You already submitted your review this cycle — here\'s what you sent (read-only)</span></div>';
+  else if(already) statusNote = '<div class="row" style="margin-bottom:12px;"><span class="badge warn">You already submitted this cycle — you can still edit it below until HR publishes the summary</span></div>';
   return `<div class="card">
     <h2>Review my manager <span class="badge" style="background:#e6f4ea;color:#137333;font-weight:600;">🔒 Anonymous</span></h2>
     <div class="desc">${cycle.label} · About <b>${mgr.name}</b> (${mgr.department}) — <b>this review is anonymous.</b> HR reads your responses first; ${mgr.name.split(' ')[0]} never sees your name or exact answers, only an HR-written summary.</div>
     <div class="hrw-note"><b>${icon('shield',14)} How this works:</b> This review does not go straight to ${mgr.name.split(' ')[0]}. It's anonymous and goes to HR only — HR reads every raw response, then writes an overall summary and decides what, if anything, to share with ${mgr.name.split(' ')[0]}. Your name and individual answers are never shared.</div>
-    ${already?'<div class="row" style="margin-bottom:12px;"><span class="badge ok">You already submitted your review this cycle — here\'s what you sent (read-only)</span></div>':''}
+    ${statusNote}
     ${ratingLegendHTML()}
-    <div id="upwardRatings">${UPWARD_RATINGS.map(f=>ratingRowHtml(f, already?(savedRatings[f.key]||0):(draftRatings[f.key]||0))).join('')}</div>
+    <div id="upwardRatings">${UPWARD_RATINGS.map(f=>ratingRowHtml(f, curRatings[f.key]||0)).join('')}</div>
     <div class="divider"></div>
-    ${UPWARD_FIELDS.map(f=>`<div class="field"><label>${f.label}</label><div class="hint">${f.hint}</div><textarea data-upward-field="${f.key}" ${already?'readonly':''}>${already?escapeHtml(savedAnswers[f.key]||''):(draftAnswers[f.key]?escapeHtml(draftAnswers[f.key]):'')}</textarea></div>`).join('')}
-    ${already?'':`<button class="btn" id="submitUpwardReview">Submit anonymously</button>
+    ${UPWARD_FIELDS.map(f=>`<div class="field"><label>${f.label}</label><div class="hint">${f.hint}</div><textarea data-upward-field="${f.key}" ${locked?'readonly':''}>${curAnswers[f.key]?escapeHtml(curAnswers[f.key]):''}</textarea></div>`).join('')}
+    ${locked?'':`<button class="btn" id="submitUpwardReview">${already?'Update your review':'Submit anonymously'}</button>
     <div class="small muted" style="margin-top:8px;">Your answers save automatically in this browser as you type, so nothing is lost if you switch tabs or step away.</div>`}
   </div>`;
 }
@@ -2491,6 +2496,7 @@ function bindViewEvents(role, nav, cycle, person){
       managerId, cycleId:cycle.id, skipManagerId, recipients, visibleToIds,
       avgRatings, themes, responseCount:list.length, published:true, publishedAt:new Date().toISOString()
     }, {merge:true});
+    await fdb.collection('upward_counts').doc(managerId+'_'+cycle.id).set({summaryPublished:true}, {merge:true});
     try{
       const recipientPeople = visibleToIds.map(pid=>getPerson(pid)).filter(p=>p && p.email);
       for(const rp of recipientPeople){
@@ -2727,8 +2733,9 @@ function bindUpwardFormEvents(cycle, person){
   const submitBtn = document.getElementById('submitUpwardReview');
   if(!submitBtn) return;
   const dKey = draftKey('upward', cycle.id, person.id);
+  const already = DB.upwardAuthorship.find(r=>r.cycleId===cycle.id && r.managerId===person.managerId);
   const draft = loadLocalDraft(dKey) || {};
-  const ratings = Object.assign({}, draft.ratings||{});
+  const ratings = Object.assign({}, already?already.ratings:{}, draft.ratings||{});
   const persistDraft = ()=>{
     const answers = {};
     UPWARD_FIELDS.forEach(f=>{ const el = document.querySelector(`[data-upward-field="${f.key}"]`); answers[f.key] = el?el.value:''; });
@@ -2744,24 +2751,36 @@ function bindUpwardFormEvents(cycle, person){
     if(missing.length){ alert('Please complete the ratings before submitting.'); return; }
     const answers = {};
     UPWARD_FIELDS.forEach(f=>{ answers[f.key] = document.querySelector(`[data-upward-field="${f.key}"]`).value; });
-    const reviewId = uid('ur');
     const managerId = person.managerId;
-    const countRef = fdb.collection('upward_counts').doc(managerId+'_'+cycle.id);
     submitBtn.disabled = true;
     try{
-      await fdb.runTransaction(async tx=>{
-        const countSnap = await tx.get(countRef);
-        const newCount = (countSnap.exists ? countSnap.data().count : 0) + 1;
-        tx.set(fdb.collection('reviews_upward').doc(reviewId), {
-          cycleId:cycle.id, managerId, department:person.department, ratings, answers, createdAt:new Date().toISOString()
+      if(already){
+        const reviewId = already.reviewId || already.id;
+        await fdb.collection('reviews_upward').doc(reviewId).set({
+          ratings, answers, updatedAt:new Date().toISOString()
+        }, {merge:true});
+        await fdb.collection('upward_authorship').doc(reviewId).set({
+          ratings, answers, updatedAt:new Date().toISOString()
+        }, {merge:true});
+        clearLocalDraft(dKey);
+        toast('Your review was updated'); render();
+      } else {
+        const reviewId = uid('ur');
+        const countRef = fdb.collection('upward_counts').doc(managerId+'_'+cycle.id);
+        await fdb.runTransaction(async tx=>{
+          const countSnap = await tx.get(countRef);
+          const newCount = (countSnap.exists ? countSnap.data().count : 0) + 1;
+          tx.set(fdb.collection('reviews_upward').doc(reviewId), {
+            cycleId:cycle.id, managerId, department:person.department, ratings, answers, createdAt:new Date().toISOString()
+          });
+          tx.set(fdb.collection('upward_authorship').doc(reviewId), {
+            reviewId, authorEmail:person.email, managerId, cycleId:cycle.id, ratings, answers, createdAt:new Date().toISOString()
+          });
+          tx.set(countRef, {count:newCount}, {merge:true});
         });
-        tx.set(fdb.collection('upward_authorship').doc(reviewId), {
-          reviewId, authorEmail:person.email, managerId, cycleId:cycle.id, ratings, answers, createdAt:new Date().toISOString()
-        });
-        tx.set(countRef, {count:newCount}, {merge:true});
-      });
-      clearLocalDraft(dKey);
-      toast('Review submitted anonymously to HR'); render();
+        clearLocalDraft(dKey);
+        toast('Review submitted anonymously to HR'); render();
+      }
     } catch(e){ console.error(e); alert('Could not submit — please try again.'); submitBtn.disabled = false; }
   });
 }
