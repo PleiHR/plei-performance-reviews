@@ -2112,7 +2112,7 @@ function viewUpwardForm(cycle, person){
     return `<div class="card"><h2>Review my manager</h2><div class="empty">You don't have a manager assigned in the system.</div></div>`;
   }
   const mgr = getPerson(person.managerId);
-  const already = DB.upwardAuthorship.find(r=>r.cycleId===cycle.id && r.managerId===person.managerId);
+  const already = DB.upwardAuthorship.find(r=>r.cycleId===cycle.id && r.managerId===person.managerId && r.authorEmail===person.email);
   const countDoc = DB.upwardCounts.find(c=>c.id===person.managerId+'_'+cycle.id);
   const locked = !!(already && countDoc && countDoc.summaryPublished);
   const draft = (!locked) ? (loadLocalDraft(draftKey('upward', cycle.id, person.id)) || {}) : {};
@@ -2733,7 +2733,7 @@ function bindUpwardFormEvents(cycle, person){
   const submitBtn = document.getElementById('submitUpwardReview');
   if(!submitBtn) return;
   const dKey = draftKey('upward', cycle.id, person.id);
-  const already = DB.upwardAuthorship.find(r=>r.cycleId===cycle.id && r.managerId===person.managerId);
+  const already = DB.upwardAuthorship.find(r=>r.cycleId===cycle.id && r.managerId===person.managerId && r.authorEmail===person.email);
   const draft = loadLocalDraft(dKey) || {};
   const ratings = Object.assign({}, already?already.ratings:{}, draft.ratings||{});
   const persistDraft = ()=>{
