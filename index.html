@@ -1298,6 +1298,21 @@ function personModal(existingId){
       batch.set(fdb.collection('directory').doc(p.id), directoryFieldsFor(data), {merge:true});
       if(data.managerId !== (p.managerId||null)){
         applyChainRecursive(batch, p.id, computeChainFor(data.managerId));
+        // Self-reviews store a snapshot of the manager's email at submission time, so a manager
+        // change leaves already-submitted self-reviews invisible to the new manager. Reassign any
+        // self-review from a still-open cycle to the new manager so it carries over automatically.
+        if(data.managerId){
+          const newMgr = getPerson(data.managerId);
+          if(newMgr && newMgr.email){
+            DB.reviews.self.filter(r=>{
+              if(r.employeeEmail!==p.email || r.managerEmail===newMgr.email) return false;
+              const c = getCycle(r.cycleId);
+              return !c || c.status!=='locked';
+            }).forEach(r=>{
+              batch.set(fdb.collection('reviews_self').doc(r.id), {managerEmail:newMgr.email}, {merge:true});
+            });
+          }
+        }
       }
       await batch.commit();
     } else {
