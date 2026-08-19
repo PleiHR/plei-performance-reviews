@@ -374,7 +374,7 @@ async function seedFirestoreFromOrgData(){
 let DB = {departments:[], people:[], directory:[], cycles:[], settings:{companyDomain:'plei.com'},
   reviews:{self:[], manager:[], peer:[], upward:[]}, suggestions:[],
   peerCounts:[], peerAuthorship:[], peerSummaries:[],
-  upwardCounts:[], upwardSummaries:[], upwardAuthorship:[], oneOnOnes:[], calendarSync:[], personFiles:[]};
+  upwardCounts:[], upwardSummaries:[], upwardAuthorship:[], oneOnOnes:[], calendarSync:[], personFiles:[], deptSummaries:[]};
 let DB_LOADED = false;
 let CURRENT_USER = null; // {uid, email}
 
@@ -405,6 +405,7 @@ function startReviewListeners(email, isHR){
     reviewListenerUnsubs.push(fdb.collection('calendarSync').onSnapshot(snap=>{ DB.calendarSync = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('suggestions').onSnapshot(snap=>{ DB.suggestions = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('personFiles').onSnapshot(snap=>{ DB.personFiles = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
+    reviewListenerUnsubs.push(fdb.collection('deptSummaries').onSnapshot(snap=>{ DB.deptSummaries = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
   } else {
     let selfMine = [], selfTeam = [];
     reviewListenerUnsubs.push(fdb.collection('reviews_self').where('employeeEmail','==',email).onSnapshot(snap=>{ selfMine = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); DB.reviews.self = mergeById(selfMine, selfTeam); if(DB_LOADED) render(); }, e=>console.error(e)));
@@ -529,6 +530,8 @@ let STATE = {
   cwDept: null,
   cwTarget: null,
   profilePersonId: null,
+  deptSummaryDept: null,
+  deptSummaryOpenId: null,
 };
 
 function currentPerson(){ return DB.people.find(p=>p.id===STATE.viewAs); }
@@ -923,6 +926,7 @@ function render(){
       {id:'cycles', icon:'calendar', label:'Review Cycles'},
       {id:'org', icon:'building', label:'Organization'},
       {id:'people', icon:'file', label:'People Profiles'},
+      {id:'deptSummaries', icon:'book', label:'Performance Review Summary'},
       {id:'tracking', icon:'check', label:'Manager Tracking'},
       {id:'selftracking', icon:'userCheck', label:'Self-Review Tracking'},
       {id:'peer', icon:'users', label:'Company Wide Feedback'},
@@ -988,7 +992,7 @@ function render(){
     </div>
   </div>`;
 
-  document.querySelectorAll('[data-nav]').forEach(el=>el.addEventListener('click', ()=>{ STATE.nav = el.dataset.nav; STATE.cwDept=null; STATE.cwTarget=null; STATE.profilePersonId=null; render(); }));
+  document.querySelectorAll('[data-nav]').forEach(el=>el.addEventListener('click', ()=>{ STATE.nav = el.dataset.nav; STATE.cwDept=null; STATE.cwTarget=null; STATE.profilePersonId=null; STATE.deptSummaryDept=null; STATE.deptSummaryOpenId=null; render(); }));
   document.querySelectorAll('[data-nav-toggle]').forEach(el=>el.addEventListener('click', ()=>{ const k=el.dataset.navToggle; STATE.navCollapsed[k]=!STATE.navCollapsed[k]; render(); }));
   document.getElementById('cycleSelect').addEventListener('change', e=>{ STATE.activeCycleId = e.target.value; render(); });
   document.getElementById('previewSelect')?.addEventListener('change', e=>{ STATE.previewPersonId = e.target.value || null; STATE.nav=null; render(); });
@@ -1005,6 +1009,7 @@ function renderView(nav, cycle, person){
     case 'cycles': return viewCycles();
     case 'org': return viewOrg();
     case 'people': return viewPeopleProfiles(cycle);
+    case 'deptSummaries': return viewDeptSummaries();
     case 'tracking': return viewManagerTracking(cycle);
     case 'selftracking': return viewSelfTracking(cycle);
     case 'peer': return viewPeerHR(cycle);
@@ -1582,6 +1587,124 @@ function viewPersonProfileDetail(cycle, person){
       <td><button class="btn ghost sm" data-delete-person-file="${f.id}">Delete</button></td>
     </tr>`).join('')}
     </tbody></table>
+  </div>`;
+}
+
+function deptSummariesFor(dept){ return DB.deptSummaries.filter(s=>s.department===dept).sort((a,b)=>(b.updatedAt||'').localeCompare(a.updatedAt||'')); }
+
+function pipBadge(status){
+  const m = {no:{label:'No PIP', cls:'ok'}, monitor:{label:'Monitor', cls:'warn'}, yes:{label:'PIP', cls:'bad'}};
+  const s = m[status] || m.no;
+  return `<span class="badge ${s.cls}">${s.label}</span>`;
+}
+
+function viewDeptSummaries(){
+  if(STATE.deptSummaryOpenId){
+    const dept = STATE.deptSummaryDept;
+    if(STATE.deptSummaryOpenId==='new') return viewDeptSummaryEditor(dept, null);
+    const existing = DB.deptSummaries.find(s=>s.id===STATE.deptSummaryOpenId);
+    if(existing) return viewDeptSummaryEditor(existing.department, existing);
+    STATE.deptSummaryOpenId = null;
+  }
+  if(STATE.deptSummaryDept) return viewDeptSummaryList(STATE.deptSummaryDept);
+  return viewDeptSummaryDeptList();
+}
+
+function viewDeptSummaryDeptList(){
+  const depts = DB.departments.slice();
+  return `<div class="card">
+    <h2>Performance Review Summary</h2>
+    <div class="desc">HR's written review of each department, shared back as a devolution to the department head — overview, individual flags, and recommendations. Pick a department to see or add a summary.</div>
+    <table><thead><tr><th>Department</th><th>Department head</th><th>Summaries</th><th>Latest period</th><th></th></tr></thead><tbody>
+    ${depts.map(d=>{
+      const list = deptSummariesFor(d);
+      const latest = list[0];
+      return `<tr style="cursor:pointer;" data-open-dept-summary="${escapeHtml(d)}">
+        <td><b>${escapeHtml(d)}</b></td>
+        <td class="small muted">${latest && latest.departmentManager ? escapeHtml(latest.departmentManager) : '—'}</td>
+        <td>${list.length}</td>
+        <td class="small muted">${latest && latest.reviewPeriod ? escapeHtml(latest.reviewPeriod) : '—'}</td>
+        <td><button class="btn ghost sm" data-open-dept-summary="${escapeHtml(d)}">View →</button></td>
+      </tr>`;
+    }).join('')}
+    </tbody></table>
+  </div>`;
+}
+
+function viewDeptSummaryList(dept){
+  const list = deptSummariesFor(dept);
+  return `<div class="card">
+    <button class="btn ghost sm" id="backToDeptSummaryDepts">← Back to departments</button>
+    <div class="row" style="justify-content:space-between;align-items:center;margin-top:14px;">
+      <h2 style="margin:0;">${escapeHtml(dept)} — Performance Review Summary</h2>
+      <button class="btn sm" data-new-dept-summary="${escapeHtml(dept)}">+ New summary</button>
+    </div>
+    <div class="desc">All Performance Review Summaries written for this department.</div>
+    ${list.length===0 ? '<div class="empty">No summaries yet for this department.</div>' : `
+    <table style="margin-top:10px;"><thead><tr><th>Review period</th><th>Department head</th><th>Last updated</th><th></th></tr></thead><tbody>
+    ${list.map(s=>`<tr style="cursor:pointer;" data-view-dept-summary="${s.id}">
+      <td><b>${escapeHtml(s.reviewPeriod)||'Untitled'}</b></td>
+      <td class="small muted">${escapeHtml(s.departmentManager)||'—'}</td>
+      <td class="small muted">${fmtDateTime(s.updatedAt)}${s.updatedByName?' · '+escapeHtml(s.updatedByName):''}</td>
+      <td><button class="btn ghost sm" data-view-dept-summary="${s.id}">Open →</button></td>
+    </tr>`).join('')}
+    </tbody></table>`}
+  </div>`;
+}
+
+function dsEntryRowHtml(e){
+  return `<tr data-entry-row>
+    <td>${escapeHtml(e.name)}<input type="hidden" class="e-name" value="${escapeHtml(e.name)}"></td>
+    <td class="small muted">${escapeHtml(e.manager)||'—'}<input type="hidden" class="e-manager" value="${escapeHtml(e.manager)}"></td>
+    <td>${pipBadge(e.pipStatus)}<input type="hidden" class="e-pip" value="${escapeHtml(e.pipStatus)}"></td>
+    <td class="small">${escapeHtml(e.concerns)||'—'}<input type="hidden" class="e-concerns" value="${escapeHtml(e.concerns)}"></td>
+    <td class="small">${escapeHtml(e.feedback)||'—'}<input type="hidden" class="e-feedback" value="${escapeHtml(e.feedback)}"></td>
+    <td><button class="btn ghost sm" type="button" data-remove-entry-row>Remove</button></td>
+  </tr>`;
+}
+
+function viewDeptSummaryEditor(dept, existing){
+  const s = existing || {department:dept, reviewPeriod:'', departmentManager:'', overview:'', entries:[], summary:'', managerNotes:'', recommendations:''};
+  const entries = s.entries || [];
+  return `<div class="card">
+    <button class="btn ghost sm" data-back-to-dept-summary-list="${escapeHtml(dept)}">← Back to ${escapeHtml(dept)} summaries</button>
+    <h2 style="margin-top:14px;">${escapeHtml(dept)} — Performance Review Summary</h2>
+    <div class="desc">HR's written review of this department, meant as a devolution to the department head. This section is admin-only.</div>
+
+    <div class="grid grid-2" style="margin-top:10px;">
+      <div class="field"><label>Review period</label><input type="text" id="dsReviewPeriod" placeholder="e.g. End-of-Year 2025" value="${escapeHtml(s.reviewPeriod)}"></div>
+      <div class="field"><label>Department head</label><input type="text" id="dsDeptManager" placeholder="e.g. Brayan Acebo" value="${escapeHtml(s.departmentManager)}"></div>
+    </div>
+    <div class="field"><label>Overview</label><textarea id="dsOverview" rows="5" placeholder="Overall summary of the department's period, key wins, and context.">${escapeHtml(s.overview)}</textarea></div>
+
+    <div class="divider"></div>
+    <h3 style="margin-top:0;">Individual flags</h3>
+    <div class="desc">Add one row per person worth flagging — the department head, a manager, or a team member.</div>
+    <div class="grid" style="grid-template-columns:1fr 1fr 130px 1fr;gap:8px;">
+      <div class="field" style="margin:0;"><label>Name</label><input type="text" id="dsEntryName" placeholder="Name"></div>
+      <div class="field" style="margin:0;"><label>Manager (optional)</label><input type="text" id="dsEntryManager" placeholder="Reports to..."></div>
+      <div class="field" style="margin:0;"><label>PIP status</label><select id="dsEntryPip"><option value="no">No PIP</option><option value="monitor">Monitor</option><option value="yes">PIP</option></select></div>
+      <div class="field" style="margin:0;"><label>Concerns (short)</label><input type="text" id="dsEntryConcerns" placeholder="e.g. Unclear delegation"></div>
+    </div>
+    <div class="field"><label>Summary of feedback / flags</label><textarea id="dsEntryFeedback" rows="2" placeholder="Longer note on this person"></textarea></div>
+    <button class="btn ghost sm" id="dsAddEntryBtn" type="button">+ Add row</button>
+
+    <table style="margin-top:14px;"><thead><tr><th>Name</th><th>Manager</th><th>PIP</th><th>Concerns</th><th>Feedback</th><th></th></tr></thead>
+    <tbody id="dsEntriesBody">
+    ${entries.length===0?'<tr data-empty-row><td colspan="6" class="empty">No entries added yet.</td></tr>':''}
+    ${entries.map(e=>dsEntryRowHtml(e)).join('')}
+    </tbody></table>
+
+    <div class="divider"></div>
+    <div class="field"><label>Summary</label><textarea id="dsSummary" rows="4" placeholder="Overall summary / themes across the department.">${escapeHtml(s.summary)}</textarea></div>
+    <div class="field"><label>Manager notes</label><textarea id="dsManagerNotes" rows="4" placeholder="Notes specifically about the department head's leadership.">${escapeHtml(s.managerNotes)}</textarea></div>
+    <div class="field"><label>Recommendations</label><textarea id="dsRecommendations" rows="4" placeholder="One recommendation per line.">${escapeHtml(s.recommendations)}</textarea></div>
+
+    <div class="row" style="margin-top:14px;gap:8px;align-items:center;">
+      <button class="btn" id="dsSaveBtn">${existing?'Save changes':'Create summary'}</button>
+      ${existing?`<button class="btn danger sm" id="dsDeleteBtn" data-id="${existing.id}">Delete summary</button>`:''}
+      <span id="dsSaveStatus" class="small muted"></span>
+    </div>
   </div>`;
 }
 
@@ -2563,7 +2686,87 @@ function bindViewEvents(role, nav, cycle, person){
     await fdb.collection('personFiles').doc(el.dataset.deletePersonFile).delete();
     toast('File deleted'); render();
   }));
-  document.querySelectorAll('[data-nav]').forEach(el=>{ if(el.closest('.card')) el.addEventListener('click', ()=>{ STATE.nav = el.dataset.nav; STATE.cwDept=null; STATE.cwTarget=null; STATE.profilePersonId=null; render(); }); });
+
+  // Performance Review Summary (department)
+  document.querySelectorAll('[data-open-dept-summary]').forEach(el=>el.addEventListener('click', ()=>{ STATE.deptSummaryDept = el.dataset.openDeptSummary; STATE.deptSummaryOpenId = null; render(); }));
+  document.getElementById('backToDeptSummaryDepts')?.addEventListener('click', ()=>{ STATE.deptSummaryDept = null; STATE.deptSummaryOpenId = null; render(); });
+  document.querySelectorAll('[data-new-dept-summary]').forEach(el=>el.addEventListener('click', ()=>{ STATE.deptSummaryDept = el.dataset.newDeptSummary; STATE.deptSummaryOpenId = 'new'; render(); }));
+  document.querySelectorAll('[data-view-dept-summary]').forEach(el=>el.addEventListener('click', ()=>{ STATE.deptSummaryOpenId = el.dataset.viewDeptSummary; render(); }));
+  document.querySelectorAll('[data-back-to-dept-summary-list]').forEach(el=>el.addEventListener('click', ()=>{ STATE.deptSummaryDept = el.dataset.backToDeptSummaryList; STATE.deptSummaryOpenId = null; render(); }));
+  document.getElementById('dsAddEntryBtn')?.addEventListener('click', ()=>{
+    const name = document.getElementById('dsEntryName').value.trim();
+    if(!name){ alert('Please enter a name for this row.'); return; }
+    const entry = {
+      name,
+      manager: document.getElementById('dsEntryManager').value.trim(),
+      pipStatus: document.getElementById('dsEntryPip').value,
+      concerns: document.getElementById('dsEntryConcerns').value.trim(),
+      feedback: document.getElementById('dsEntryFeedback').value.trim(),
+    };
+    const body = document.getElementById('dsEntriesBody');
+    const emptyRow = body.querySelector('[data-empty-row]');
+    if(emptyRow) emptyRow.remove();
+    body.insertAdjacentHTML('beforeend', dsEntryRowHtml(entry));
+    document.getElementById('dsEntryName').value = '';
+    document.getElementById('dsEntryManager').value = '';
+    document.getElementById('dsEntryPip').value = 'no';
+    document.getElementById('dsEntryConcerns').value = '';
+    document.getElementById('dsEntryFeedback').value = '';
+    document.getElementById('dsEntryName').focus();
+  });
+  document.getElementById('dsEntriesBody')?.addEventListener('click', e=>{
+    const btn = e.target.closest('[data-remove-entry-row]');
+    if(!btn) return;
+    const tr = btn.closest('tr');
+    const body = document.getElementById('dsEntriesBody');
+    tr.remove();
+    if(!body.querySelector('[data-entry-row]')) body.insertAdjacentHTML('beforeend', '<tr data-empty-row><td colspan="6" class="empty">No entries added yet.</td></tr>');
+  });
+  document.getElementById('dsSaveBtn')?.addEventListener('click', async ()=>{
+    const btn = document.getElementById('dsSaveBtn');
+    const statusEl = document.getElementById('dsSaveStatus');
+    btn.disabled = true; statusEl.textContent = 'Saving...';
+    try{
+      const entries = Array.from(document.querySelectorAll('#dsEntriesBody tr[data-entry-row]')).map(tr=>({
+        name: tr.querySelector('.e-name').value,
+        manager: tr.querySelector('.e-manager').value,
+        pipStatus: tr.querySelector('.e-pip').value,
+        concerns: tr.querySelector('.e-concerns').value,
+        feedback: tr.querySelector('.e-feedback').value,
+      }));
+      const me = sessionPerson();
+      const payload = {
+        department: STATE.deptSummaryDept,
+        reviewPeriod: document.getElementById('dsReviewPeriod').value.trim(),
+        departmentManager: document.getElementById('dsDeptManager').value.trim(),
+        overview: document.getElementById('dsOverview').value,
+        entries,
+        summary: document.getElementById('dsSummary').value,
+        managerNotes: document.getElementById('dsManagerNotes').value,
+        recommendations: document.getElementById('dsRecommendations').value,
+        updatedAt: new Date().toISOString(),
+        updatedByName: me ? me.name : '',
+      };
+      if(STATE.deptSummaryOpenId && STATE.deptSummaryOpenId!=='new'){
+        await fdb.collection('deptSummaries').doc(STATE.deptSummaryOpenId).set(payload, {merge:true});
+      } else {
+        payload.createdAt = payload.updatedAt;
+        await fdb.collection('deptSummaries').add(payload);
+      }
+      toast('Summary saved');
+      STATE.deptSummaryOpenId = null;
+      render();
+    }catch(e){ console.error(e); statusEl.textContent = 'Save failed: ' + e.message; btn.disabled = false; }
+  });
+  document.getElementById('dsDeleteBtn')?.addEventListener('click', async ()=>{
+    if(!confirm('Delete this Performance Review Summary? This cannot be undone.')) return;
+    await fdb.collection('deptSummaries').doc(document.getElementById('dsDeleteBtn').dataset.id).delete();
+    toast('Summary deleted');
+    STATE.deptSummaryOpenId = null;
+    render();
+  });
+
+  document.querySelectorAll('[data-nav]').forEach(el=>{ if(el.closest('.card')) el.addEventListener('click', ()=>{ STATE.nav = el.dataset.nav; STATE.cwDept=null; STATE.cwTarget=null; STATE.profilePersonId=null; STATE.deptSummaryDept=null; STATE.deptSummaryOpenId=null; render(); }); });
 
   if(nav==='analytics') setTimeout(drawAnalyticsCharts, 30);
 
