@@ -1731,13 +1731,35 @@ function viewDeptSummaryList(dept){
 }
 
 function dsEntryRowHtml(e){
-  return `<tr data-entry-row>
-    <td>${escapeHtml(e.name)}<input type="hidden" class="e-name" value="${escapeHtml(e.name)}"></td>
-    <td class="small muted">${escapeHtml(e.manager)||'—'}<input type="hidden" class="e-manager" value="${escapeHtml(e.manager)}"></td>
-    <td>${pipBadge(e.pipStatus)}<input type="hidden" class="e-pip" value="${escapeHtml(e.pipStatus)}"></td>
-    <td class="small">${escapeHtml(e.concerns)||'—'}<input type="hidden" class="e-concerns" value="${escapeHtml(e.concerns)}"></td>
-    <td class="small">${escapeHtml(e.feedback)||'—'}<input type="hidden" class="e-feedback" value="${escapeHtml(e.feedback)}"></td>
+  // Rendered as a pair of rows: a compact summary row (click anywhere on it to open the
+  // editor) and a hidden detail row with the actual editable fields (name, manager, PIP,
+  // concerns, feedback). This lets HR click straight into a person's row to fill in their
+  // flag info instead of having to use the separate "add row" form up top for edits.
+  return `<tr data-entry-row style="cursor:pointer;">
+    <td class="e-name-display">${escapeHtml(e.name)}</td>
+    <td class="small muted e-manager-display">${escapeHtml(e.manager)||'—'}</td>
+    <td class="e-pip-display">${pipBadge(e.pipStatus)}</td>
+    <td class="small e-concerns-display">${escapeHtml(e.concerns)||'—'}</td>
+    <td class="small e-feedback-display">${escapeHtml(e.feedback)||'—'}</td>
     <td><button class="btn ghost sm" type="button" data-remove-entry-row>Remove</button></td>
+  </tr>
+  <tr data-entry-edit style="display:none;">
+    <td colspan="6" style="background:#fafafe;padding:14px 16px;">
+      <div class="grid grid-2" style="gap:10px;">
+        <div class="field" style="margin:0;"><label>Name</label><input type="text" class="e-name" value="${escapeHtml(e.name)}"></div>
+        <div class="field" style="margin:0;"><label>Manager (optional)</label><input type="text" class="e-manager" value="${escapeHtml(e.manager)}" placeholder="Reports to..."></div>
+      </div>
+      <div class="grid" style="grid-template-columns:160px 1fr;gap:10px;margin-top:10px;">
+        <div class="field" style="margin:0;"><label>PIP status</label><select class="e-pip">
+          <option value="no"${e.pipStatus==='no'?' selected':''}>No PIP</option>
+          <option value="monitor"${e.pipStatus==='monitor'?' selected':''}>Monitor</option>
+          <option value="yes"${e.pipStatus==='yes'?' selected':''}>PIP</option>
+        </select></div>
+        <div class="field" style="margin:0;"><label>Concerns (short)</label><input type="text" class="e-concerns" value="${escapeHtml(e.concerns)}" placeholder="e.g. Unclear delegation"></div>
+      </div>
+      <div class="field" style="margin-top:10px;margin-bottom:8px;"><label>Feedback / notes</label><textarea class="e-feedback" rows="2" placeholder="Longer note on this person">${escapeHtml(e.feedback)}</textarea></div>
+      <button class="btn sm" type="button" data-close-entry-edit>Done</button>
+    </td>
   </tr>`;
 }
 
@@ -1814,7 +1836,7 @@ function viewDeptSummaryEditor(dept, existing){
 
     <div class="divider"></div>
     <h3 style="margin-top:0;">Individual flags</h3>
-    <div class="desc">Add one row per person worth flagging — the department head, a manager, or a team member.</div>
+    <div class="desc">Click any person's row below to open their editor and set PIP status, concerns, and feedback. Use the form here to add someone who isn't already listed.</div>
     <div class="grid" style="grid-template-columns:1fr 1fr 130px 1fr;gap:8px;">
       <div class="field" style="margin:0;"><label>Name</label><input type="text" id="dsEntryName" placeholder="Name"></div>
       <div class="field" style="margin:0;"><label>Manager (optional)</label><input type="text" id="dsEntryManager" placeholder="Reports to..."></div>
@@ -2853,25 +2875,59 @@ function bindViewEvents(role, nav, cycle, person){
     document.getElementById('dsEntryName').focus();
   });
   document.getElementById('dsEntriesBody')?.addEventListener('click', e=>{
-    const btn = e.target.closest('[data-remove-entry-row]');
-    if(!btn) return;
-    const tr = btn.closest('tr');
-    const body = document.getElementById('dsEntriesBody');
-    tr.remove();
-    if(!body.querySelector('[data-entry-row]')) body.insertAdjacentHTML('beforeend', '<tr data-empty-row><td colspan="6" class="empty">No entries added yet.</td></tr>');
+    // Remove row (works whether the row is collapsed or expanded)
+    const removeBtn = e.target.closest('[data-remove-entry-row]');
+    if(removeBtn){
+      const tr = removeBtn.closest('tr');
+      const editRow = tr.nextElementSibling && tr.nextElementSibling.hasAttribute('data-entry-edit') ? tr.nextElementSibling : null;
+      if(editRow) editRow.remove();
+      tr.remove();
+      const body = document.getElementById('dsEntriesBody');
+      if(!body.querySelector('[data-entry-row]')) body.insertAdjacentHTML('beforeend', '<tr data-empty-row><td colspan="6" class="empty">No entries added yet.</td></tr>');
+      return;
+    }
+    // "Done" inside the expanded editor: pull the values back into the summary row and collapse
+    const closeBtn = e.target.closest('[data-close-entry-edit]');
+    if(closeBtn){
+      const editRow = closeBtn.closest('tr');
+      const summaryRow = editRow.previousElementSibling;
+      const name = editRow.querySelector('.e-name').value.trim();
+      const manager = editRow.querySelector('.e-manager').value.trim();
+      const pipStatus = editRow.querySelector('.e-pip').value;
+      const concerns = editRow.querySelector('.e-concerns').value.trim();
+      const feedback = editRow.querySelector('.e-feedback').value.trim();
+      summaryRow.querySelector('.e-name-display').textContent = name;
+      summaryRow.querySelector('.e-manager-display').textContent = manager || '—';
+      summaryRow.querySelector('.e-pip-display').innerHTML = pipBadge(pipStatus);
+      summaryRow.querySelector('.e-concerns-display').textContent = concerns || '—';
+      summaryRow.querySelector('.e-feedback-display').textContent = feedback || '—';
+      editRow.style.display = 'none';
+      return;
+    }
+    // Click anywhere else on a person's summary row opens (or closes) their editor
+    const summaryRow = e.target.closest('tr[data-entry-row]');
+    if(summaryRow){
+      const editRow = summaryRow.nextElementSibling;
+      if(editRow && editRow.hasAttribute('data-entry-edit')){
+        editRow.style.display = editRow.style.display==='none' ? 'table-row' : 'none';
+      }
+    }
   });
   document.getElementById('dsSaveBtn')?.addEventListener('click', async ()=>{
     const btn = document.getElementById('dsSaveBtn');
     const statusEl = document.getElementById('dsSaveStatus');
     btn.disabled = true; statusEl.textContent = 'Saving...';
     try{
-      const entries = Array.from(document.querySelectorAll('#dsEntriesBody tr[data-entry-row]')).map(tr=>({
-        name: tr.querySelector('.e-name').value,
-        manager: tr.querySelector('.e-manager').value,
-        pipStatus: tr.querySelector('.e-pip').value,
-        concerns: tr.querySelector('.e-concerns').value,
-        feedback: tr.querySelector('.e-feedback').value,
-      }));
+      const entries = Array.from(document.querySelectorAll('#dsEntriesBody tr[data-entry-row]')).map(tr=>{
+        const editRow = tr.nextElementSibling;
+        return {
+          name: editRow.querySelector('.e-name').value.trim(),
+          manager: editRow.querySelector('.e-manager').value.trim(),
+          pipStatus: editRow.querySelector('.e-pip').value,
+          concerns: editRow.querySelector('.e-concerns').value.trim(),
+          feedback: editRow.querySelector('.e-feedback').value.trim(),
+        };
+      });
       const me = sessionPerson();
       const headId = document.getElementById('dsDeptManager').value;
       const headPerson = headId ? getPerson(headId) : null;
