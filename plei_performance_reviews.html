@@ -1592,6 +1592,37 @@ function viewPersonProfileDetail(cycle, person){
 
 function deptSummariesFor(dept){ return DB.deptSummaries.filter(s=>s.department===dept).sort((a,b)=>(b.updatedAt||'').localeCompare(a.updatedAt||'')); }
 
+// Walks managerId pointers up from a person to the root, returning the list of ancestor ids
+// (closest manager first, CEO/root last). Used to auto-detect each department's head from the
+// real org chart rather than requiring HR to type it in by hand.
+function managerChainOf(personId){
+  const chain = []; let cur = getPerson(personId); let guard = 0;
+  while(cur && cur.managerId && guard < 25){ chain.push(cur.managerId); cur = getPerson(cur.managerId); guard++; }
+  return chain;
+}
+function deptMembers(dept){ return DB.people.filter(p=>p.department===dept && !p.deactivated); }
+
+// Department head = the nearest common manager (lowest common ancestor) of everyone tagged with
+// that department — this correctly finds e.g. Alan Shilling for Marketing (his reports are tagged
+// Marketing even though his own tag is Growth) as well as a department's own top person when they
+// are tagged with it themselves (e.g. Stephanie Kowalczuk for Magic). If that ancestor turns out to
+// be the company root (the CEO, who has no manager), that means the department has no distinct
+// leader below the CEO, so we fall back to the department's own most senior tagged member instead —
+// otherwise every such department would incorrectly show the CEO as its head.
+function deptHeadFor(dept){
+  const members = deptMembers(dept);
+  if(!members.length) return null;
+  const chains = members.map(m=>[m.id, ...managerChainOf(m.id)]);
+  let headId = null;
+  for(const id of chains[0]){ if(chains.every(c=>c.includes(id))){ headId = id; break; } }
+  let head = headId ? getPerson(headId) : members[0];
+  if(head && !head.managerId){
+    const tagged = members.filter(p=>p.managerId).sort((a,b)=>managerChainOf(a.id).length - managerChainOf(b.id).length);
+    if(tagged.length) head = tagged[0];
+  }
+  return head || null;
+}
+
 function pipBadge(status){
   const m = {no:{label:'No PIP', cls:'ok'}, monitor:{label:'Monitor', cls:'warn'}, yes:{label:'PIP', cls:'bad'}};
   const s = m[status] || m.no;
@@ -1643,7 +1674,7 @@ function viewDeptSummaryList(dept){
     ${list.length===0 ? '<div class="empty">No summaries yet for this department.</div>' : `
     <table style="margin-top:10px;"><thead><tr><th>Review period</th><th>Department head</th><th>Last updated</th><th></th></tr></thead><tbody>
     ${list.map(s=>`<tr style="cursor:pointer;" data-view-dept-summary="${s.id}">
-      <td><b>${escapeHtml(s.reviewPeriod)||'Untitled'}</b></td>
+      <td><b>${escapeHtml(s.reviewPeriod)||'Untitled'}</b>${s.sentAt?' <span class="badge ok">Sent</span>':''}</td>
       <td class="small muted">${escapeHtml(s.departmentManager)||'—'}</td>
       <td class="small muted">${fmtDateTime(s.updatedAt)}${s.updatedByName?' · '+escapeHtml(s.updatedByName):''}</td>
       <td><button class="btn ghost sm" data-view-dept-summary="${s.id}">Open →</button></td>
@@ -1663,9 +1694,65 @@ function dsEntryRowHtml(e){
   </tr>`;
 }
 
-function viewDeptSummaryEditor(dept, existing){
-  const s = existing || {department:dept, reviewPeriod:'', departmentManager:'', overview:'', entries:[], summary:'', managerNotes:'', recommendations:''};
+function deptSummaryEmailHtml(s, headName){
+  const pipLabel = {no:'No PIP', monitor:'Monitor', yes:'PIP'};
   const entries = s.entries || [];
+  const entriesHtml = entries.length ? `<table style="border-collapse:collapse;width:100%;margin:10px 0;">
+    <thead><tr>
+      <th style="text-align:left;border-bottom:1px solid #ccc;padding:6px 8px;">Name</th>
+      <th style="text-align:left;border-bottom:1px solid #ccc;padding:6px 8px;">Manager</th>
+      <th style="text-align:left;border-bottom:1px solid #ccc;padding:6px 8px;">PIP</th>
+      <th style="text-align:left;border-bottom:1px solid #ccc;padding:6px 8px;">Concerns</th>
+      <th style="text-align:left;border-bottom:1px solid #ccc;padding:6px 8px;">Feedback</th>
+    </tr></thead>
+    <tbody>
+    ${entries.map(e=>`<tr>
+      <td style="padding:6px 8px;border-bottom:1px solid #eee;"><b>${escapeHtml(e.name)}</b></td>
+      <td style="padding:6px 8px;border-bottom:1px solid #eee;">${escapeHtml(e.manager)||'—'}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #eee;">${escapeHtml(pipLabel[e.pipStatus]||'No PIP')}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #eee;">${escapeHtml(e.concerns)||'—'}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #eee;">${escapeHtml(e.feedback)||'—'}</td>
+    </tr>`).join('')}
+    </tbody></table>` : '<p><i>No individual flags for this period.</i></p>';
+  const block = (label, text)=> text ? `<p><b>${label}</b><br>${escapeHtml(text).replace(/\n/g,'<br>')}</p>` : '';
+  return `
+    <p>Hi ${escapeHtml(headName)},</p>
+    <p>HR has completed a Performance Review Summary for <b>${escapeHtml(s.department)}</b>${s.reviewPeriod?' — <b>'+escapeHtml(s.reviewPeriod)+'</b>':''}. This is a devolution of what came up during this review cycle, shared directly with you as the department head.</p>
+    ${block('Overview', s.overview)}
+    <h3 style="margin-bottom:4px;">Individual flags</h3>
+    ${entriesHtml}
+    ${block('Summary', s.summary)}
+    ${block('Notes on your leadership', s.managerNotes)}
+    ${block('Recommendations', s.recommendations)}
+    <p>Happy to walk through any of this together — just reach out.</p>
+    <p>— Plei Performance HR</p>
+  `;
+}
+
+function viewDeptSummaryEditor(dept, existing){
+  const computedHead = deptHeadFor(dept);
+  const s = existing || {
+    department: dept, reviewPeriod: '', departmentManagerId: computedHead?computedHead.id:'', departmentManager:'', departmentManagerEmail:'',
+    overview: '',
+    entries: deptMembers(dept).filter(p=>!computedHead || p.id!==computedHead.id).map(p=>({
+      name: p.name,
+      manager: p.managerId ? (getPerson(p.managerId)?getPerson(p.managerId).name:'') : '',
+      pipStatus: 'no', concerns: '', feedback: ''
+    })),
+    summary: '', managerNotes: '', recommendations: '', sentAt: null, sentToEmail: null, sentByName: null
+  };
+  const entries = s.entries || [];
+  let selectedHeadId = s.departmentManagerId || '';
+  if(!selectedHeadId && s.departmentManager){
+    const match = DB.people.find(p=>p.name===s.departmentManager);
+    if(match) selectedHeadId = match.id;
+  }
+  if(!selectedHeadId && computedHead) selectedHeadId = computedHead.id;
+  const headOptions = DB.people.filter(p=>!p.deactivated).slice().sort((a,b)=>a.name.localeCompare(b.name));
+  const headSelectHtml = `<select id="dsDeptManager">
+    <option value="">— Select —</option>
+    ${headOptions.map(p=>`<option value="${p.id}" ${p.id===selectedHeadId?'selected':''}>${escapeHtml(p.name)}${computedHead && p.id===computedHead.id ? ' (auto-detected)' : ''}</option>`).join('')}
+  </select>`;
   return `<div class="card">
     <button class="btn ghost sm" data-back-to-dept-summary-list="${escapeHtml(dept)}">← Back to ${escapeHtml(dept)} summaries</button>
     <h2 style="margin-top:14px;">${escapeHtml(dept)} — Performance Review Summary</h2>
@@ -1673,9 +1760,10 @@ function viewDeptSummaryEditor(dept, existing){
 
     <div class="grid grid-2" style="margin-top:10px;">
       <div class="field"><label>Review period</label><input type="text" id="dsReviewPeriod" placeholder="e.g. End-of-Year 2025" value="${escapeHtml(s.reviewPeriod)}"></div>
-      <div class="field"><label>Department head</label><input type="text" id="dsDeptManager" placeholder="e.g. Brayan Acebo" value="${escapeHtml(s.departmentManager)}"></div>
+      <div class="field"><label>Department head</label>${headSelectHtml}<div class="small muted" style="margin-top:4px;">Auto-detected from the org chart — change it if this department has a different head.</div></div>
     </div>
     <div class="field"><label>Overview</label><textarea id="dsOverview" rows="5" placeholder="Overall summary of the department's period, key wins, and context.">${escapeHtml(s.overview)}</textarea></div>
+    <div class="desc" style="margin-top:-6px;">The "Individual flags" table below was pre-filled with everyone currently tagged to ${escapeHtml(dept)} — remove rows that don't need a flag, or add anyone else worth mentioning.</div>
 
     <div class="divider"></div>
     <h3 style="margin-top:0;">Individual flags</h3>
@@ -1700,11 +1788,14 @@ function viewDeptSummaryEditor(dept, existing){
     <div class="field"><label>Manager notes</label><textarea id="dsManagerNotes" rows="4" placeholder="Notes specifically about the department head's leadership.">${escapeHtml(s.managerNotes)}</textarea></div>
     <div class="field"><label>Recommendations</label><textarea id="dsRecommendations" rows="4" placeholder="One recommendation per line.">${escapeHtml(s.recommendations)}</textarea></div>
 
-    <div class="row" style="margin-top:14px;gap:8px;align-items:center;">
+    <div class="row" style="margin-top:14px;gap:8px;align-items:center;flex-wrap:wrap;">
       <button class="btn" id="dsSaveBtn">${existing?'Save changes':'Create summary'}</button>
+      ${existing?`<button class="btn ghost sm" id="dsSendToHeadBtn" data-id="${existing.id}">📧 Send to department head</button>`:''}
       ${existing?`<button class="btn danger sm" id="dsDeleteBtn" data-id="${existing.id}">Delete summary</button>`:''}
       <span id="dsSaveStatus" class="small muted"></span>
     </div>
+    ${existing && s.sentAt ? `<div class="small muted" style="margin-top:8px;">✓ Sent to ${escapeHtml(s.sentToEmail||'')} on ${fmtDateTime(s.sentAt)}${s.sentByName?' by '+escapeHtml(s.sentByName):''}</div>` : ''}
+    ${!existing ? `<div class="small muted" style="margin-top:8px;">Save the summary first to unlock sending it to the department head.</div>` : ''}
   </div>`;
 }
 
@@ -2735,10 +2826,14 @@ function bindViewEvents(role, nav, cycle, person){
         feedback: tr.querySelector('.e-feedback').value,
       }));
       const me = sessionPerson();
+      const headId = document.getElementById('dsDeptManager').value;
+      const headPerson = headId ? getPerson(headId) : null;
       const payload = {
         department: STATE.deptSummaryDept,
         reviewPeriod: document.getElementById('dsReviewPeriod').value.trim(),
-        departmentManager: document.getElementById('dsDeptManager').value.trim(),
+        departmentManagerId: headId || null,
+        departmentManager: headPerson ? headPerson.name : '',
+        departmentManagerEmail: headPerson ? headPerson.email : null,
         overview: document.getElementById('dsOverview').value,
         entries,
         summary: document.getElementById('dsSummary').value,
@@ -2764,6 +2859,33 @@ function bindViewEvents(role, nav, cycle, person){
     toast('Summary deleted');
     STATE.deptSummaryOpenId = null;
     render();
+  });
+  document.getElementById('dsSendToHeadBtn')?.addEventListener('click', async ()=>{
+    const btn = document.getElementById('dsSendToHeadBtn');
+    const id = btn.dataset.id;
+    const s = DB.deptSummaries.find(x=>x.id===id);
+    if(!s){ alert('Could not find this summary — try reopening it.'); return; }
+    const headEmail = s.departmentManagerEmail;
+    const headName = s.departmentManager || 'there';
+    if(!headEmail){ alert('This summary has no department head selected (or they have no email on file). Pick a department head and save before sending.'); return; }
+    if(!confirm(`Send this Performance Review Summary to ${headName} (${headEmail})?`)) return;
+    btn.disabled = true; const originalLabel = btn.textContent; btn.textContent = 'Sending...';
+    try{
+      const me = sessionPerson();
+      await sendGmail({
+        to: headEmail,
+        subject: 'Performance Review Summary — ' + s.department + (s.reviewPeriod?' ('+s.reviewPeriod+')':''),
+        bodyHtml: deptSummaryEmailHtml(s, headName)
+      });
+      const sentAt = new Date().toISOString();
+      await fdb.collection('deptSummaries').doc(id).set({sentAt, sentToEmail: headEmail, sentByName: me?me.name:''}, {merge:true});
+      toast('Summary sent to ' + headName);
+      render();
+    }catch(e){
+      console.error('sendGmail (dept summary) failed:', e);
+      alert('Could not send the email: ' + e.message);
+      btn.disabled = false; btn.textContent = originalLabel;
+    }
   });
 
   document.querySelectorAll('[data-nav]').forEach(el=>{ if(el.closest('.card')) el.addEventListener('click', ()=>{ STATE.nav = el.dataset.nav; STATE.cwDept=null; STATE.cwTarget=null; STATE.profilePersonId=null; STATE.deptSummaryDept=null; STATE.deptSummaryOpenId=null; render(); }); });
