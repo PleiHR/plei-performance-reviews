@@ -1623,6 +1623,31 @@ function deptHeadFor(dept){
   return head || null;
 }
 
+// Performance Review Summaries only ever roll up to the org's 4 VPs (Growth, Product, Engineering,
+// Operations) plus Magic — Magic sits under Growth on the reporting line (Stephanie reports to Alan)
+// but is carved out as its own summary group since Stephanie runs it independently.
+const DEPT_SUMMARY_GROUPS = ['Growth','Product','Engineering','Operations','Magic'];
+
+// Everyone who should show up in a summary group's "Individual flags" table: the group's auto-detected
+// head plus everyone below them on the real reporting line — not just people whose own `department`
+// field literally matches the group name. This is what lets e.g. Marketing/Partnerships/Ecommerce people
+// (who report up through Alan) show up under Growth, and HR/Customer Support/Executive Operations people
+// (who report up through Liz) show up under Operations. Magic's own subtree (under Stephanie) is excluded
+// from Growth's rollup since it's a separate summary group.
+function summaryGroupMembers(group){
+  const head = deptHeadFor(group);
+  if(!head) return [];
+  const magicHead = group!=='Magic' ? deptHeadFor('Magic') : null;
+  return DB.people.filter(p=>{
+    if(p.deactivated) return false;
+    if(p.id===head.id) return true;
+    const chain = managerChainOf(p.id);
+    if(!chain.includes(head.id)) return false;
+    if(magicHead && (p.id===magicHead.id || chain.includes(magicHead.id))) return false;
+    return true;
+  });
+}
+
 function pipBadge(status){
   const m = {no:{label:'No PIP', cls:'ok'}, monitor:{label:'Monitor', cls:'warn'}, yes:{label:'PIP', cls:'bad'}};
   const s = m[status] || m.no;
@@ -1642,17 +1667,18 @@ function viewDeptSummaries(){
 }
 
 function viewDeptSummaryDeptList(){
-  const depts = DB.departments.slice();
+  const depts = DEPT_SUMMARY_GROUPS;
   return `<div class="card">
     <h2>Performance Review Summary</h2>
-    <div class="desc">HR's written review of each department, shared back as a devolution to the department head — overview, individual flags, and recommendations. Pick a department to see or add a summary.</div>
+    <div class="desc">HR's written review of each of the org's top-level groups — the 4 VP-led orgs plus Magic — shared back as a devolution to the group's head. Pick one to see or add a summary.</div>
     <table><thead><tr><th>Department</th><th>Department head</th><th>Summaries</th><th>Latest period</th><th></th></tr></thead><tbody>
     ${depts.map(d=>{
       const list = deptSummariesFor(d);
       const latest = list[0];
+      const headName = (latest && latest.departmentManager) ? latest.departmentManager : (deptHeadFor(d)?.name || '—');
       return `<tr style="cursor:pointer;" data-open-dept-summary="${escapeHtml(d)}">
         <td><b>${escapeHtml(d)}</b></td>
-        <td class="small muted">${latest && latest.departmentManager ? escapeHtml(latest.departmentManager) : '—'}</td>
+        <td class="small muted">${escapeHtml(headName)}</td>
         <td>${list.length}</td>
         <td class="small muted">${latest && latest.reviewPeriod ? escapeHtml(latest.reviewPeriod) : '—'}</td>
         <td><button class="btn ghost sm" data-open-dept-summary="${escapeHtml(d)}">View →</button></td>
@@ -1734,7 +1760,7 @@ function viewDeptSummaryEditor(dept, existing){
   const s = existing || {
     department: dept, reviewPeriod: '', departmentManagerId: computedHead?computedHead.id:'', departmentManager:'', departmentManagerEmail:'',
     overview: '',
-    entries: deptMembers(dept).filter(p=>!computedHead || p.id!==computedHead.id).map(p=>({
+    entries: summaryGroupMembers(dept).filter(p=>!computedHead || p.id!==computedHead.id).map(p=>({
       name: p.name,
       manager: p.managerId ? (getPerson(p.managerId)?getPerson(p.managerId).name:'') : '',
       pipStatus: 'no', concerns: '', feedback: ''
@@ -1763,7 +1789,7 @@ function viewDeptSummaryEditor(dept, existing){
       <div class="field"><label>Department head</label>${headSelectHtml}<div class="small muted" style="margin-top:4px;">Auto-detected from the org chart — change it if this department has a different head.</div></div>
     </div>
     <div class="field"><label>Overview</label><textarea id="dsOverview" rows="5" placeholder="Overall summary of the department's period, key wins, and context.">${escapeHtml(s.overview)}</textarea></div>
-    <div class="desc" style="margin-top:-6px;">The "Individual flags" table below was pre-filled with everyone currently tagged to ${escapeHtml(dept)} — remove rows that don't need a flag, or add anyone else worth mentioning.</div>
+    <div class="desc" style="margin-top:-6px;">The "Individual flags" table below was pre-filled with everyone on ${escapeHtml(dept)}'s team per the org chart${dept==='Growth'?' (Magic is tracked separately)':''} — remove rows that don't need a flag, or add anyone else worth mentioning.</div>
 
     <div class="divider"></div>
     <h3 style="margin-top:0;">Individual flags</h3>
