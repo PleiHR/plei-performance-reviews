@@ -1602,25 +1602,42 @@ function managerChainOf(personId){
 }
 function deptMembers(dept){ return DB.people.filter(p=>p.department===dept && !p.deactivated); }
 
-// Department head = the nearest common manager (lowest common ancestor) of everyone tagged with
-// that department — this correctly finds e.g. Alan Shilling for Marketing (his reports are tagged
+// Department head = the closest ancestor shared by a clear majority of everyone tagged with that
+// department — this correctly finds e.g. Alan Shilling for Marketing (his reports are tagged
 // Marketing even though his own tag is Growth) as well as a department's own top person when they
-// are tagged with it themselves (e.g. Stephanie Kowalczuk for Magic). If that ancestor turns out to
-// be the company root (the CEO, who has no manager), that means the department has no distinct
-// leader below the CEO, so we fall back to the department's own most senior tagged member instead —
-// otherwise every such department would incorrectly show the CEO as its head.
+// are tagged with it themselves (e.g. Stephanie Kowalczuk for Magic). We use "majority" rather than
+// "everyone" so a single outlier (e.g. someone in the department who happens to report directly to
+// a more senior exec instead of the department's day-to-day lead) doesn't drag the detected head all
+// the way up to that exec. Among candidates clearing the majority bar, we prefer the one closest to
+// the members (smallest average distance) over one that technically covers more people but is more
+// senior/generic. The company root (the CEO, who has no manager) is never auto-picked as a head —
+// if nothing else clears the majority bar we fall back to the department's own most senior member.
 function deptHeadFor(dept){
   const members = deptMembers(dept);
   if(!members.length) return null;
-  const chains = members.map(m=>[m.id, ...managerChainOf(m.id)]);
-  let headId = null;
-  for(const id of chains[0]){ if(chains.every(c=>c.includes(id))){ headId = id; break; } }
-  let head = headId ? getPerson(headId) : members[0];
-  if(head && !head.managerId){
-    const tagged = members.filter(p=>p.managerId).sort((a,b)=>managerChainOf(a.id).length - managerChainOf(b.id).length);
-    if(tagged.length) head = tagged[0];
+  const total = members.length;
+  const candidates = new Map(); // id -> {coveredBy:Set<memberId>, depthSum:number}
+  members.forEach(m=>{
+    const chain = [m.id, ...managerChainOf(m.id)];
+    chain.forEach((ancestorId, depth)=>{
+      if(!candidates.has(ancestorId)) candidates.set(ancestorId, {coveredBy:new Set(), depthSum:0});
+      const c = candidates.get(ancestorId);
+      if(!c.coveredBy.has(m.id)){ c.coveredBy.add(m.id); c.depthSum += depth; }
+    });
+  });
+  let best = null;
+  for(const [id, c] of candidates){
+    const person = getPerson(id);
+    if(!person || !person.managerId) continue; // never auto-pick the company root/CEO
+    if(c.coveredBy.size / total <= 0.5) continue; // require a clear majority, not just a plurality
+    const avgDepth = c.depthSum / c.coveredBy.size;
+    if(!best || avgDepth < best.avgDepth || (avgDepth===best.avgDepth && c.coveredBy.size>best.coverage)){
+      best = {id, avgDepth, coverage:c.coveredBy.size};
+    }
   }
-  return head || null;
+  if(best) return getPerson(best.id);
+  const tagged = members.filter(p=>p.managerId).sort((a,b)=>managerChainOf(a.id).length - managerChainOf(b.id).length);
+  return tagged.length ? tagged[0] : members[0];
 }
 
 // Performance Review Summaries only ever roll up to the org's 4 VPs (Growth, Product, Engineering,
@@ -1628,12 +1645,14 @@ function deptHeadFor(dept){
 // but is carved out as its own summary group since Stephanie runs it independently.
 const DEPT_SUMMARY_GROUPS = ['Growth','Product','Engineering','Operations','Magic'];
 
-// Everyone who should show up in a summary group's "Individual flags" table: the group's auto-detected
-// head plus everyone below them on the real reporting line — not just people whose own `department`
-// field literally matches the group name. This is what lets e.g. Marketing/Partnerships/Ecommerce people
-// (who report up through Alan) show up under Growth, and HR/Customer Support/Executive Operations people
-// (who report up through Liz) show up under Operations. Magic's own subtree (under Stephanie) is excluded
-// from Growth's rollup since it's a separate summary group.
+// Everyone who should show up in a summary group's "Individual flags" table: anyone tagged straight
+// to that group (regardless of who they happen to report to day-to-day — e.g. someone in Magic who
+// reports directly to Alan still belongs in Magic, not Growth), plus everyone below the group's
+// auto-detected head on the real reporting line for sub-teams that aren't tagged with one of our 5
+// canonical group names (e.g. Marketing/Partnerships/Ecommerce people report up through Alan and roll
+// into Growth; HR/Customer Support/Executive Operations people report up through Liz and roll into
+// Operations). People already tagged to one of the other 4 groups are never pulled into this one via
+// the reporting-line rollup, and Magic's own subtree is excluded from Growth's rollup either way.
 function summaryGroupMembers(group){
   const head = deptHeadFor(group);
   if(!head) return [];
@@ -1641,6 +1660,8 @@ function summaryGroupMembers(group){
   return DB.people.filter(p=>{
     if(p.deactivated) return false;
     if(p.id===head.id) return true;
+    if(p.department===group) return true;
+    if(p.department && DEPT_SUMMARY_GROUPS.includes(p.department) && p.department!==group) return false;
     const chain = managerChainOf(p.id);
     if(!chain.includes(head.id)) return false;
     if(magicHead && (p.id===magicHead.id || chain.includes(magicHead.id))) return false;
