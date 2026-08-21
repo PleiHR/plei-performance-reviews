@@ -1969,7 +1969,7 @@ function viewPeerHR(cycle){
           <div class="small muted">${list.length} pieces of feedback · average ${avgScore?avgScore.toFixed(1):'—'}</div>
         </div>
         ${list.map(r=>`<div class="quote-card">
-          <div class="meta">Anonymous · Collaboration ${r.ratings.collaboration} · Reliability ${r.ratings.reliability} · Impact ${r.ratings.impact}</div>
+          <div class="meta">Anonymous · ${fmtDate((r.createdAt||'').slice(0,10))} · Collaboration ${r.ratings.collaboration} · Reliability ${r.ratings.reliability} · Impact ${r.ratings.impact}</div>
           <div><b>Strengths:</b> ${escapeHtml(r.answers.strengths)||'—'}</div>
           ${r.answers.example?`<div><b>Example:</b> ${escapeHtml(r.answers.example)}</div>`:''}
           ${r.answers.growth?`<div><b>Suggestion:</b> ${escapeHtml(r.answers.growth)}</div>`:''}
@@ -2516,7 +2516,7 @@ function viewPeerForm(cycle, person){
 function renderMyPeerSubmissions(cycle, person){
   const mine = DB.peerAuthorship.filter(r=>r.cycleId===cycle.id && r.authorEmail===person.email);
   if(!mine.length) return "<div class=\"empty\">You haven't given any feedback this cycle.</div>";
-  return `<ul>${mine.map(r=>`<li>About ${getPerson(r.targetId)?getPerson(r.targetId).name:'—'} — ${fmtDate(cycle.startDate)} <button class="btn ghost sm" data-print-peer="${r.id}">🖨️ Download PDF</button></li>`).join('')}</ul>`;
+  return `<ul>${mine.map(r=>`<li>About ${getPerson(r.targetId)?getPerson(r.targetId).name:'—'} — ${fmtDate((r.createdAt||'').slice(0,10))} <button class="btn ghost sm" data-print-peer="${r.id}">🖨️ Download PDF</button></li>`).join('')}</ul>`;
 }
 
 /* ============================= UPWARD REVIEW FORM ============================= */
