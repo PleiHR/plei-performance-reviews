@@ -1521,6 +1521,7 @@ function viewPeopleProfiles(cycle){
 function viewPersonProfileDetail(cycle, person){
   const mgr = person.managerId ? getPerson(person.managerId) : null;
   const cycles = DB.cycles.slice().sort((a,b)=>b.year-a.year || (a.type<b.type?1:-1));
+  const hasScoreHistory = DB.reviews.manager.some(r=>r.employeeId===person.id && r.status==='submitted');
   const cycleBlocks = cycles.map(c=>{
     const selfRev = findReview('self', c.id, x=>x.employeeId===person.id && x.status==='submitted');
     const mgrRev = findReview('manager', c.id, x=>x.employeeId===person.id && x.status==='submitted');
@@ -1570,7 +1571,12 @@ function viewPersonProfileDetail(cycle, person){
       <span class="badge neutral">${person.role==='hr'?'HR':person.role==='manager'?'Manager':'Employee'}</span>
     </div>
   </div>
-  ${cycleBlocks || '<div class="card"><div class="empty">No review history yet for this person.</div></div>'}
+  ${hasScoreHistory ? `<div class="card">
+        <h2 style="margin-top:0;">Score over time</h2>
+        <div class="desc">Overall manager review score across cycles, as more reviews are completed.</div>
+        <canvas id="personScoreChart" height="180"></canvas>
+      </div>` : ''}
+      ${cycleBlocks || '<div class="card"><div class="empty">No review history yet for this person.</div></div>'}
   <div class="card">
     <h2>External files &amp; notes</h2>
     <div class="desc">Upload reviews or feedback you received outside the platform (PDFs, docs, screenshots — up to ~${fmtBytes(MAX_PERSON_FILE_BYTES)} each). Everything is dated automatically.</div>
@@ -2129,6 +2135,19 @@ function viewAnalytics(){
 function DB_manager_reviews_for_dept(dept){
   const peopleInDept = DB.people.filter(p=>p.department===dept).map(p=>p.id);
   return DB.reviews.manager.filter(r=>peopleInDept.includes(r.employeeId)).map(ratingAvgOfReview).filter(Boolean);
+}
+
+function drawPersonScoreChart(person){
+  const el = document.getElementById('personScoreChart');
+  if(!el || typeof Chart==='undefined') return;
+  const cycles = DB.cycles.slice().sort((a,b)=>a.startDate.localeCompare(b.startDate));
+  const points = cycles.map(c=>{
+    const rev = findReview('manager', c.id, x=>x.employeeId===person.id && x.status==='submitted');
+    return rev ? ratingAvgOfReview(rev) : null;
+  });
+  if(!points.some(v=>v!=null)) return;
+  new Chart(el, {type:'line', data:{labels:cycles.map(c=>c.label), datasets:[{label:'Overall score', data:points, borderColor:'#16755C', backgroundColor:'#E6FAF5', fill:true, tension:.3, spanGaps:true}]},
+    options:{plugins:{title:{display:true,text:'Overall score by cycle'},legend:{display:false}}, scales:{y:{min:0,max:5}}}});
 }
 
 function drawAnalyticsCharts(){
@@ -3030,6 +3049,8 @@ function bindViewEvents(role, nav, cycle, person){
   document.querySelectorAll('[data-nav]').forEach(el=>{ if(el.closest('.card')) el.addEventListener('click', ()=>{ STATE.nav = el.dataset.nav; STATE.cwDept=null; STATE.cwTarget=null; STATE.profilePersonId=null; STATE.deptSummaryDept=null; STATE.deptSummaryOpenId=null; render(); }); });
 
   if(nav==='analytics') setTimeout(drawAnalyticsCharts, 30);
+
+  if(STATE.profilePersonId){ const pp = getPerson(STATE.profilePersonId); if(pp) setTimeout(()=>drawPersonScoreChart(pp), 30); }
 
   // Manager: team list -> open review form / read self-review
   document.querySelectorAll('[data-fill-manager]').forEach(el=>el.addEventListener('click', ()=>{
