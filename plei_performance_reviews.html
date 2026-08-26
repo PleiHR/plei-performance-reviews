@@ -1860,6 +1860,7 @@ function viewDeptSummaryEditor(dept, existing){
     <div class="row" style="margin-top:14px;gap:8px;align-items:center;flex-wrap:wrap;">
       <button class="btn" id="dsSaveBtn">${existing?'Save changes':'Create summary'}</button>
       ${existing?`<button class="btn ghost sm" id="dsSendToHeadBtn" data-id="${existing.id}">📧 Send to department head</button>`:''}
+        ${existing?`<button class="btn ghost sm" id="dsDownloadPdfBtn" data-id="${existing.id}">🖨️ Download PDF</button>`:''}
       ${existing?`<button class="btn danger sm" id="dsDeleteBtn" data-id="${existing.id}">Delete summary</button>`:''}
       <span id="dsSaveStatus" class="small muted"></span>
     </div>
@@ -2745,6 +2746,34 @@ function buildPeerPrintable(cycle, peerReview){
   ${PEER_FIELDS.map(f=>`<div class="block"><b>${f.label}</b><p>${escapeHtml(peerReview.answers[f.key])||'—'}</p></div>`).join('')}
   </body></html>`;
 }
+function buildDeptSummaryPrintable(s){
+  const pipLabel = {no:'No PIP', monitor:'Monitor', yes:'PIP'};
+  const entries = s.entries || [];
+  const entriesHtml = entries.length ? `<table style="width:100%;border-collapse:collapse;margin:10px 0;"><thead><tr><th>Name</th><th>Manager</th><th>PIP</th><th>Concerns</th><th>Feedback</th></tr></thead><tbody>${entries.map(e=>`<tr><td><b>${escapeHtml(e.name)}</b></td><td>${escapeHtml(e.manager)||'-'}</td><td>${escapeHtml(pipLabel[e.pipStatus]||'No PIP')}</td><td>${escapeHtml(e.concerns)||'-'}</td><td>${escapeHtml(e.feedback)||'-'}</td></tr>`).join('')}</tbody></table>` : '<p><i>No individual flags for this period.</i></p>';
+  const block = (label, text)=> text ? `<div class="block"><b>${label}</b><p>${escapeHtml(text).replace(/\n/g,'<br>')}</p></div>` : '';
+  return `<html><head><meta charset="UTF-8"><title>Performance Review Summary — ${escapeHtml(s.department)}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=clash-grotesk@600&display=swap">
+  <style>
+    body{font-family:'Inter',-apple-system,Arial,sans-serif;color:#0B3B2E;padding:40px;max-width:800px;margin:0 auto;}
+    ${PDF_HEADER_CSS}
+    h1{font-family:'Clash Grotesk','Inter',sans-serif;font-size:22px;margin-bottom:2px;}
+    h3{font-family:'Clash Grotesk','Inter',sans-serif;font-size:16px;margin-top:24px;border-bottom:2px solid #16755C;padding-bottom:6px;}
+    .meta{color:#5c7c74;font-size:13px;margin-bottom:20px;}
+    table{width:100%;border-collapse:collapse;margin:10px 0;} th{text-align:left;border-bottom:1px solid #ccc;padding:6px 8px;font-size:12.5px;} td{padding:6px 8px;border-bottom:1px solid #eee;font-size:13px;}
+    .block{margin-bottom:16px;} .block b{display:block;font-size:13px;margin-bottom:3px;color:#16755C;} .block p{margin:0;font-size:13.5px;line-height:1.5;}
+  </style></head><body>
+  ${pdfHeader(s.reviewPeriod || '')}
+  <h1>${escapeHtml(s.department)} — Performance Review Summary</h1>
+  <div class="meta">Department head: ${escapeHtml(s.departmentManager)||'-'}${s.reviewPeriod?' · '+escapeHtml(s.reviewPeriod):''}</div>
+  ${block('Overview', s.overview)}
+  <h3>Individual flags</h3>
+  ${entriesHtml}
+  ${block('Summary', s.summary)}
+  ${block('Manager notes', s.managerNotes)}
+  ${block('Recommendations', s.recommendations)}
+  </body></html>`;
+}
 function printHtml(html){
   const w = window.open('', '_blank');
   w.document.write(html);
@@ -2989,6 +3018,13 @@ function bindViewEvents(role, nav, cycle, person){
       alert('Could not send the email: ' + e.message);
       btn.disabled = false; btn.textContent = originalLabel;
     }
+  });
+
+  document.getElementById('dsDownloadPdfBtn')?.addEventListener('click', ()=>{
+    const id = document.getElementById('dsDownloadPdfBtn').dataset.id;
+    const s = DB.deptSummaries.find(x=>x.id===id);
+    if(!s){ alert('Could not find this summary — try reopening it.'); return; }
+    printHtml(buildDeptSummaryPrintable(s));
   });
 
   document.querySelectorAll('[data-nav]').forEach(el=>{ if(el.closest('.card')) el.addEventListener('click', ()=>{ STATE.nav = el.dataset.nav; STATE.cwDept=null; STATE.cwTarget=null; STATE.profilePersonId=null; STATE.deptSummaryDept=null; STATE.deptSummaryOpenId=null; render(); }); });
