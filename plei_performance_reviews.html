@@ -1730,7 +1730,7 @@ function viewDeptSummaryList(dept){
       <td><b>${escapeHtml(s.reviewPeriod)||'Untitled'}</b>${s.sentAt?' <span class="badge ok">Sent</span>':''}</td>
       <td class="small muted">${escapeHtml(s.departmentManager)||'—'}</td>
       <td class="small muted">${fmtDateTime(s.updatedAt)}${s.updatedByName?' · '+escapeHtml(s.updatedByName):''}</td>
-      <td><button class="btn ghost sm" data-view-dept-summary="${s.id}">Open →</button></td>
+      <td><button class="btn ghost sm" data-view-dept-summary="${s.id}">Open →</button> <button class="btn ghost sm" data-dl-dept-summary="${s.id}" title="View & download PDF">🖨️ PDF</button></td>
     </tr>`).join('')}
     </tbody></table>`}
   </div>`;
@@ -2900,6 +2900,7 @@ function bindViewEvents(role, nav, cycle, person){
   document.getElementById('backToDeptSummaryDepts')?.addEventListener('click', ()=>{ STATE.deptSummaryDept = null; STATE.deptSummaryOpenId = null; render(); });
   document.querySelectorAll('[data-new-dept-summary]').forEach(el=>el.addEventListener('click', ()=>{ STATE.deptSummaryDept = el.dataset.newDeptSummary; STATE.deptSummaryOpenId = 'new'; render(); }));
   document.querySelectorAll('[data-view-dept-summary]').forEach(el=>el.addEventListener('click', ()=>{ STATE.deptSummaryOpenId = el.dataset.viewDeptSummary; render(); }));
+      document.querySelectorAll('[data-dl-dept-summary]').forEach(el=>el.addEventListener('click', (e)=>{ e.stopPropagation(); const s=DB.deptSummaries.find(x=>x.id===el.dataset.dlDeptSummary); if(s) printHtml(buildDeptSummaryPrintable(s)); }));
   document.querySelectorAll('[data-back-to-dept-summary-list]').forEach(el=>el.addEventListener('click', ()=>{ STATE.deptSummaryDept = el.dataset.backToDeptSummaryList; STATE.deptSummaryOpenId = null; render(); }));
   document.getElementById('dsAddEntryBtn')?.addEventListener('click', ()=>{
     const name = document.getElementById('dsEntryName').value.trim();
