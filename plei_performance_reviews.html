@@ -69,6 +69,24 @@
   .badge.warn{background:var(--warn-bg);color:var(--warn);}
   .badge.bad{background:var(--bad-bg);color:var(--bad);}
   .badge.neutral{background:#eef0f4;color:#5b6270;}
+  /* --- Redesign: new design-system components (brief Aug 26 2026) --- */
+  .stpill{display:inline-flex;align-items:center;justify-content:center;width:92px;height:22px;border-radius:6px;font-size:11px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0;}
+  .stpill.ok{background:var(--ok-bg);color:var(--ok);}
+  .stpill.warn{background:var(--warn-bg);color:var(--warn);}
+  .stpill.bad{background:var(--bad-bg);color:var(--bad);}
+  .stpill.neutral{background:#eef0f4;color:#5b6270;}
+  .stpill.info{background:#e7eefb;color:#2b5fb0;}
+  .score{display:inline-flex;align-items:center;justify-content:center;width:44px;height:22px;border-radius:7px;font-size:11.5px;font-weight:800;font-variant-numeric:tabular-nums;background:var(--ok-bg);color:var(--ok);flex-shrink:0;}
+  .score.warn{background:var(--warn-bg);color:var(--warn);}
+  .score.bad{background:var(--bad-bg);color:var(--bad);}
+  .score.na{background:#f3f4f3;color:#8a968f;}
+  .sevtag{display:inline-flex;align-items:center;justify-content:center;width:92px;height:22px;border-radius:5px;font-size:9.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;flex-shrink:0;color:#fff;}
+  .sevtag.pip{background:var(--bad);}
+  .sevtag.mon{background:#e0a63a;}
+  .sevtag.ok{background:transparent;color:var(--ok);border:1px solid var(--ok);}
+  .chip{display:inline-flex;align-items:center;font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#8a968f;}
+  .actbtn{display:inline-flex;align-items:center;justify-content:center;width:84px;height:24px;font-size:11.5px;font-weight:500;color:var(--ink);background:#fff;border:1px solid #d4dcd7;border-radius:7px;white-space:nowrap;overflow:hidden;cursor:pointer;flex-shrink:0;}
+  .actbtn:hover{border-color:#9fb0a7;}
   .bar-wrap{background:#eef0f4;border-radius:20px;height:8px;width:100%;overflow:hidden;}
   .bar-fill{background:var(--brand);height:100%;border-radius:20px;}
   .btn{display:inline-flex;align-items:center;gap:6px;background:var(--brand);color:#fff;border:none;padding:8px 15px;border-radius:8px;font-size:13.5px;font-weight:600;cursor:pointer;}
@@ -984,7 +1002,7 @@ function render(){
           ` : `<div class="small muted">Signed in as <b>${sp.name}</b> · ${sp.email}</div>`}
         </div>
         <div class="topbar-left">
-          ${STATE.previewPersonId ? `<span class="badge warn">Previewing as ${person.name}</span>` : ''}
+          ${STATE.previewPersonId ? `<span class="chip">Previewing as ${escapeHtml(person.name)}</span>` : ''}
           <button class="btn ghost sm" id="signOutBtn">Sign out</button>
         </div>
       </div>
@@ -1675,11 +1693,18 @@ function summaryGroupMembers(group){
   });
 }
 
-function pipBadge(status){
-  const m = {no:{label:'No PIP', cls:'ok'}, monitor:{label:'Monitor', cls:'warn'}, yes:{label:'PIP', cls:'bad'}};
-  const s = m[status] || m.no;
-  return `<span class="badge ${s.cls}">${s.label}</span>`;
+function scoreBadge(val){
+  if(val===null || val===undefined || val==='' || isNaN(val)) return '<span class="score na">—</span>';
+  const n = Number(val);
+  const cls = n<=3.0 ? ' bad' : (n<3.5 ? ' warn' : '');
+  return `<span class="score${cls}">${n.toFixed(1)}</span>`;
 }
+function sevTag(status){
+  const m = {no:{label:'No action', cls:'ok'}, monitor:{label:'Monitor', cls:'mon'}, yes:{label:'PIP', cls:'pip'}};
+  const s = m[status] || m.no;
+  return `<span class="sevtag ${s.cls}">${s.label}</span>`;
+}
+function pipBadge(status){ return sevTag(status); }
 
 function viewDeptSummaries(){
   if(STATE.deptSummaryOpenId){
@@ -1757,7 +1782,7 @@ function dsEntryRowHtml(e){
       </div>
       <div class="grid" style="grid-template-columns:160px 1fr;gap:10px;margin-top:10px;">
         <div class="field" style="margin:0;"><label>PIP status</label><select class="e-pip">
-          <option value="no"${e.pipStatus==='no'?' selected':''}>No PIP</option>
+          <option value="no"${e.pipStatus==='no'?' selected':''}>No action</option>
           <option value="monitor"${e.pipStatus==='monitor'?' selected':''}>Monitor</option>
           <option value="yes"${e.pipStatus==='yes'?' selected':''}>PIP</option>
         </select></div>
@@ -1770,7 +1795,7 @@ function dsEntryRowHtml(e){
 }
 
 function deptSummaryEmailHtml(s, headName){
-  const pipLabel = {no:'No PIP', monitor:'Monitor', yes:'PIP'};
+  const pipLabel = {no:'No action', monitor:'Monitor', yes:'PIP'};
   const entries = s.entries || [];
   const entriesHtml = entries.length ? `<table style="border-collapse:collapse;width:100%;margin:10px 0;">
     <thead><tr>
@@ -1784,7 +1809,7 @@ function deptSummaryEmailHtml(s, headName){
     ${entries.map(e=>`<tr>
       <td style="padding:6px 8px;border-bottom:1px solid #eee;"><b>${escapeHtml(e.name)}</b></td>
       <td style="padding:6px 8px;border-bottom:1px solid #eee;">${escapeHtml(e.manager)||'—'}</td>
-      <td style="padding:6px 8px;border-bottom:1px solid #eee;">${escapeHtml(pipLabel[e.pipStatus]||'No PIP')}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #eee;">${escapeHtml(pipLabel[e.pipStatus]||'No action')}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #eee;">${escapeHtml(e.concerns)||'—'}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #eee;">${escapeHtml(e.feedback)||'—'}</td>
     </tr>`).join('')}
@@ -1846,7 +1871,7 @@ function viewDeptSummaryEditor(dept, existing){
     <div class="grid" style="grid-template-columns:1fr 1fr 130px 1fr;gap:8px;">
       <div class="field" style="margin:0;"><label>Name</label><input type="text" id="dsEntryName" placeholder="Name"></div>
       <div class="field" style="margin:0;"><label>Manager (optional)</label><input type="text" id="dsEntryManager" placeholder="Reports to..."></div>
-      <div class="field" style="margin:0;"><label>PIP status</label><select id="dsEntryPip"><option value="no">No PIP</option><option value="monitor">Monitor</option><option value="yes">PIP</option></select></div>
+      <div class="field" style="margin:0;"><label>PIP status</label><select id="dsEntryPip"><option value="no">No action</option><option value="monitor">Monitor</option><option value="yes">PIP</option></select></div>
       <div class="field" style="margin:0;"><label>Concerns (short)</label><input type="text" id="dsEntryConcerns" placeholder="e.g. Unclear delegation"></div>
     </div>
     <div class="field"><label>Summary of feedback / flags</label><textarea id="dsEntryFeedback" rows="2" placeholder="Longer note on this person"></textarea></div>
@@ -1890,7 +1915,7 @@ function viewManagerTracking(cycle){
           <td><div class="person-cell"><div class="avatar">${initials(r.name)}</div>${r.name}</div></td>
           <td class="muted small">${r.title}</td>
           <td>${done?'<span class="badge ok">Completed</span>':'<span class="badge bad">Pending</span>'}</td>
-          <td>${rev&&done?ratingAvgOfReview(rev).toFixed(1):'—'}</td>
+          <td>${rev&&done?scoreBadge(ratingAvgOfReview(rev)):scoreBadge(null)}</td>
         </tr>`;
       }).join('');
       const done = reports.filter(r=>{const rev=findReview('manager',cycle.id,x=>x.employeeId===r.id); return rev&&rev.status==='submitted';}).length;
@@ -2110,8 +2135,8 @@ function viewAnalytics(){
             <td>${p.department}</td>
             <td class="muted small">${p.managerId?getPerson(p.managerId).name:'—'}</td>
             <td>${selfCount} completed</td>
-            <td>${mgrAvg?mgrAvg.toFixed(1):'—'}</td>
-            <td>${peerAvg?peerAvg.toFixed(1)+' ('+peerRevs.length+')':'—'}</td>
+            <td>${scoreBadge(mgrAvg)}</td>
+            <td>${scoreBadge(peerAvg)}${peerRevs.length?` <span class="muted small">(${peerRevs.length})</span>`:''}</td>
           </tr>`;
         }).join('')}
       </tbody>
@@ -2125,7 +2150,7 @@ function viewAnalytics(){
       ${managersList().map(m=>{
         const list = DB.reviews.upward.filter(r=>r.managerId===m.id);
         const a = avg(list.map(ratingAvgOfReview).filter(Boolean));
-        return `<tr><td>${m.name}</td><td>${m.department}</td><td>${list.length}</td><td>${a?a.toFixed(1):'—'}</td></tr>`;
+        return `<tr><td>${m.name}</td><td>${m.department}</td><td>${list.length}</td><td>${scoreBadge(a)}</td></tr>`;
       }).join('')}
       </tbody>
     </table>
@@ -2766,9 +2791,9 @@ function buildPeerPrintable(cycle, peerReview){
   </body></html>`;
 }
 function buildDeptSummaryPrintable(s){
-  const pipLabel = {no:'No PIP', monitor:'Monitor', yes:'PIP'};
+  const pipLabel = {no:'No action', monitor:'Monitor', yes:'PIP'};
   const entries = s.entries || [];
-  const entriesHtml = entries.length ? `<table style="width:100%;border-collapse:collapse;margin:10px 0;"><thead><tr><th>Name</th><th>Manager</th><th>PIP</th><th>Concerns</th><th>Feedback</th></tr></thead><tbody>${entries.map(e=>`<tr><td><b>${escapeHtml(e.name)}</b></td><td>${escapeHtml(e.manager)||'-'}</td><td>${escapeHtml(pipLabel[e.pipStatus]||'No PIP')}</td><td>${escapeHtml(e.concerns)||'-'}</td><td>${escapeHtml(e.feedback)||'-'}</td></tr>`).join('')}</tbody></table>` : '<p><i>No individual flags for this period.</i></p>';
+  const entriesHtml = entries.length ? `<table style="width:100%;border-collapse:collapse;margin:10px 0;"><thead><tr><th>Name</th><th>Manager</th><th>PIP</th><th>Concerns</th><th>Feedback</th></tr></thead><tbody>${entries.map(e=>`<tr><td><b>${escapeHtml(e.name)}</b></td><td>${escapeHtml(e.manager)||'-'}</td><td>${escapeHtml(pipLabel[e.pipStatus]||'No action')}</td><td>${escapeHtml(e.concerns)||'-'}</td><td>${escapeHtml(e.feedback)||'-'}</td></tr>`).join('')}</tbody></table>` : '<p><i>No individual flags for this period.</i></p>';
   const block = (label, text)=> text ? `<div class="block"><b>${label}</b><p>${escapeHtml(text).replace(/\n/g,'<br>')}</p></div>` : '';
   return `<html><head><meta charset="UTF-8"><title>Performance Review Summary — ${escapeHtml(s.department)}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
