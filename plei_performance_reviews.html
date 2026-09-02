@@ -2599,45 +2599,56 @@ function viewPeerHR(cycle){
   const byTarget = {};
   reviews.forEach(r=>{ (byTarget[r.targetId] = byTarget[r.targetId]||[]).push(r); });
 
-  // Include deactivated people too if they actually received feedback this cycle (or are
-  // still marked visible for feedback) — otherwise someone like a just-terminated employee
-  // would silently disappear from this summary even though HR still needs to see their counts.
-  const coverageRows = DB.people.filter(p=>!p.deactivated || p.visibleInFeedback || byTarget[p.id]).map(p=>{
-    const count = peerCountFor(p.id, cycle.id);
-    return {p, count};
-  }).sort((a,b)=>b.count-a.count);
-  const zero = coverageRows.filter(r=>r.count===0).length;
+  // Only people who actually received feedback this cycle show up here — HR asked to drop
+  // the long tail of everyone-with-zero from this list (it's still visible via Dashboard
+  // participation stats elsewhere, just not cluttering this table).
+  const coverageRows = Object.keys(byTarget).map(pid=>{
+    const p = getPerson(pid);
+    return p ? {p, count: byTarget[pid].length} : null;
+  }).filter(Boolean).sort((a,b)=>b.count-a.count || a.p.name.localeCompare(b.p.name));
 
   return `<div class="card">
     <h2>Company wide feedback</h2>
-    <div class="desc">${cycle.label} — anyone can leave feedback about anyone, anytime; it's optional, so counts vary by person. Raw feedback reaches HR as soon as it's submitted. Click a person with responses to read their feedback and publish a summary whenever you're ready to share it with them and their manager.</div>
+    <div class="desc">${cycle.label} — anyone can leave feedback about anyone, anytime; it's optional. Only people who've received at least one piece of feedback are listed below. Click a name to read their feedback, grouped by month, and publish a summary whenever you're ready to share it with them and their manager.</div>
     <div class="row" style="margin-bottom:10px;">
       <span class="tag">${reviews.length} pieces of feedback received</span>
-      <span class="badge neutral">${zero} with none yet</span>
+      <span class="badge neutral">${coverageRows.length} people with feedback</span>
     </div>
-    <table><thead><tr><th>Person</th><th>Responses</th></tr></thead><tbody>
+    ${coverageRows.length===0?'<div class="empty">No feedback yet this cycle.</div>':''}
+    ${coverageRows.length?`<table><thead><tr><th>Person</th><th>Responses</th></tr></thead><tbody>
     ${coverageRows.map(r=>{
       const list = byTarget[r.p.id] || [];
-      const clickable = list.length>0;
-      const expanded = clickable && STATE.cwfExpandedId===r.p.id;
-      const rowHtml = `<tr ${clickable?`style="cursor:pointer;" data-toggle-cwf-person="${r.p.id}"`:''}>
+      const expanded = STATE.cwfExpandedId===r.p.id;
+      const rowHtml = `<tr style="cursor:pointer;" data-toggle-cwf-person="${r.p.id}">
         <td><div class="person-cell"><div class="avatar">${initials(r.p.name)}</div>${r.p.name}</div></td>
-        <td>${r.count}${clickable?(expanded?' · hide ▲':' · read ▼'):''}</td>
+        <td>${r.count}${expanded?' · hide ▲':' · read ▼'}</td>
       </tr>`;
       if(!expanded) return rowHtml;
       const avgScore = avg(list.map(ratingAvgOfReview).filter(Boolean));
       const lowCount = list.length < ANONYMITY_MIN;
       const summary = peerSummaryFor(r.p.id, cycle.id);
       const summaryDraft = loadLocalDraft(draftKey('peerSummary', cycle.id, r.p.id));
+      // Group by month received (newest first) so HR can tell how recent each piece is,
+      // since responses can trickle in across the whole cycle.
+      const sorted = list.slice().sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
+      const monthGroups = [];
+      sorted.forEach(rv=>{
+        const monthKey = (rv.createdAt||'').slice(0,7);
+        const monthLabel = monthKey ? new Date(monthKey+'-01T00:00:00').toLocaleDateString('en-US',{month:'long',year:'numeric'}) : 'Unknown date';
+        let group = monthGroups.find(g=>g.monthLabel===monthLabel);
+        if(!group){ group = {monthLabel, items:[]}; monthGroups.push(group); }
+        group.items.push(rv);
+      });
       const expandedHtml = `<tr><td colspan="2" style="background:var(--bg);">
         <div style="padding:16px 4px;">
         <div class="small muted" style="margin-bottom:10px;">${list.length} pieces of feedback for ${r.p.name} · average ${avgScore?avgScore.toFixed(1):'—'}</div>
-        ${list.map(rv=>`<div class="quote-card">
+        ${monthGroups.map(g=>`<div class="small muted" style="margin:14px 0 6px;font-weight:600;text-transform:uppercase;letter-spacing:.02em;">${g.monthLabel}</div>
+        ${g.items.map(rv=>`<div class="quote-card">
           <div class="meta">Anonymous · ${fmtDate((rv.createdAt||'').slice(0,10))} · Collaboration ${rv.ratings.collaboration} · Reliability ${rv.ratings.reliability} · Impact ${rv.ratings.impact}</div>
           <div><b>Strengths:</b> ${escapeHtml(rv.answers.strengths)||'—'}</div>
           ${rv.answers.example?`<div><b>Example:</b> ${escapeHtml(rv.answers.example)}</div>`:''}
           ${rv.answers.growth?`<div><b>Suggestion:</b> ${escapeHtml(rv.answers.growth)}</div>`:''}
-        </div>`).join('')}
+        </div>`).join('')}`).join('')}
         ${lowCount ? `<div class="login-note">Heads up: fewer than ${ANONYMITY_MIN} responses — summarizing very specific wording could make it easier to guess who wrote it. You can still publish whenever you're ready.</div>` : ''}
         <div class="field"><label>Summary to share with ${r.p.name} and their manager</label><div class="hint">Summarize the raw feedback above in your own words — this is what they'll see, never the raw quotes.</div>
           <textarea data-peer-summary-themes="${r.p.id}">${summaryDraft&&summaryDraft.themes!==undefined?escapeHtml(summaryDraft.themes):(summary?escapeHtml(summary.themes||''):'')}</textarea>
@@ -2650,7 +2661,7 @@ function viewPeerHR(cycle){
       </td></tr>`;
       return rowHtml + expandedHtml;
     }).join('')}
-    </tbody></table>
+    </tbody></table>`:''}
   </div>`;
 }
 
