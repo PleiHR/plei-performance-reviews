@@ -629,6 +629,7 @@ let STATE = {
   dashboardPeopleSearch: '',
   dashboardPeopleDetailId: null,
   mreportsManagerId: null,
+  mreportsShowRaw: false,
 };
 
 function currentPerson(){ return DB.people.find(p=>p.id===STATE.viewAs); }
@@ -2143,11 +2144,22 @@ function viewManagerReports(cycle, person){
   </div>
 
   <div class="grid grid-4">
-    <div class="stat"><div class="num">${scoreBadge(upwardScore)}</div><div class="lbl">Upward feedback · ${upwardResponseCount} responses</div></div>
+    <div class="stat" ${upwardResponseCount>0?'style="cursor:pointer;" data-toggle-mreports-raw="1"':''}><div class="num">${scoreBadge(upwardScore)}</div><div class="lbl">Upward feedback · ${upwardResponseCount} response${upwardResponseCount===1?'':'s'}${upwardResponseCount>0?(STATE.mreportsShowRaw?' · hide ▲':' · read ▼'):''}</div></div>
     <div class="stat"><div class="num">${givenAvg!==null?givenAvg.toFixed(1):'—'}</div><div class="lbl">Avg score given (co. avg ${companyAvg!==null?companyAvg.toFixed(1):'—'})</div></div>
     <div class="stat"><div class="num">${dutiesPct}%</div><div class="lbl">Cycle duties completed</div></div>
     <div class="stat ${qualityFlags>0?'bad':''}"><div class="num">${qualityFlags}</div><div class="lbl">Quality flags</div></div>
   </div>
+
+  ${STATE.mreportsShowRaw && upwardList.length>0 ? `<div class="card">
+    <h3 style="margin-top:0;">Upward feedback responses — ${escapeHtml(m.name)}</h3>
+    <div class="desc">Anonymous · raw responses, HR only. Never shared with ${escapeHtml(m.name)}.</div>
+    ${upwardList.map(r=>`<div class="quote-card">
+      <div class="meta">Anonymous · Support ${r.ratings.support} · Communication ${r.ratings.communication} · Overall satisfaction ${r.ratings.overall}</div>
+      <div><b>Support received:</b> ${escapeHtml(r.answers.strengths)||'—'}</div>
+      <div><b>Opportunities for improvement:</b> ${escapeHtml(r.answers.improvements)||'—'}</div>
+      ${r.answers.other?`<div><b>Other:</b> ${escapeHtml(r.answers.other)}</div>`:''}
+    </div>`).join('')}
+  </div>` : ''}
 
   <div class="card">
     <div class="block"><b>What their team says</b><p>${escapeHtml(teamSaysText)}</p></div>
@@ -3840,7 +3852,8 @@ function bindViewEvents(role, nav, cycle, person){
   }));
 
   // Manager Reports (admin only, internal, never published).
-  document.getElementById('mreportsSelect')?.addEventListener('change', (e)=>{ STATE.mreportsManagerId = e.target.value; render(); });
+  document.getElementById('mreportsSelect')?.addEventListener('change', (e)=>{ STATE.mreportsManagerId = e.target.value; STATE.mreportsShowRaw = false; render(); });
+  document.querySelector('[data-toggle-mreports-raw]')?.addEventListener('click', ()=>{ STATE.mreportsShowRaw = !STATE.mreportsShowRaw; render(); });
   document.querySelectorAll('textarea[data-mgr-recommendation]').forEach(el=>{
     wireAutosaveTextarea(el, async (value)=>{
       const meP = sessionPerson();
