@@ -1034,6 +1034,8 @@ function render(){
     adminItems.push(
       {id:'dashboard', icon:'dashboard', label:'Dashboard'},
       {id:'deptSummaries', icon:'book', label:'Department Reports'},
+      {id:'peer', icon:'users', label:'Company Wide Feedback'},
+      {id:'upward', icon:'arrowUp', label:'Upward Reviews'},
       {id:'mreports', icon:'file', label:'Manager Reports'},
       {id:'cyclepeople', icon:'calendar', label:'Cycle & People'},
     );
@@ -1044,7 +1046,9 @@ function render(){
   ];
   // 'myreviews' (Profile) is reachable only via the avatar, never rendered as a nav item —
   // it's included here only so STATE.nav stays valid when the avatar click sets it.
-  const items = [...mineItems, ...managerItems, ...adminItems, ...helpItems, {id:'myreviews'}];
+  // 'myself' (self-review form) and 'upwardform' (review-your-manager form) are reachable only
+  // via the "Write"/"Start" buttons on the To-Dos screen — same reasoning, not sidebar items.
+  const items = [...mineItems, ...managerItems, ...adminItems, ...helpItems, {id:'myreviews'}, {id:'myself'}, {id:'upwardform'}];
   if(!items.find(i=>i.id===STATE.nav)) STATE.nav = mineItems[0].id;
 
   root.innerHTML = `
