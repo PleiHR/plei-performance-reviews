@@ -630,6 +630,7 @@ let STATE = {
   dashboardPeopleDetailId: null,
   mreportsManagerId: null,
   mreportsShowRaw: false,
+  mreportsShowQuality: false,
   cwfExpandedId: null,
   deptReportExpandedId: null,
 };
@@ -2086,6 +2087,24 @@ function viewTodos(cycle, person){
 
 /* ============================= ADMIN STUBS (built out in phase 6) ============================= */
 /* ============================= HR: MANAGER REPORTS (admin only, internal, never published) ============================= */
+function managerReviewQualityIssues(rev, cycle){
+  const issues = [];
+  const blankFields = MANAGER_FIELDS.filter(f=>!((rev.answers && rev.answers[f.key])||'').trim());
+  const shortFields = MANAGER_FIELDS.filter(f=>{
+    const txt = ((rev.answers && rev.answers[f.key])||'').trim();
+    if(!txt) return false;
+    const wc = txt.split(/\s+/).filter(Boolean).length;
+    return wc < 15;
+  });
+  if(blankFields.length>0) issues.push(`${blankFields.length} field${blankFields.length===1?'':'s'} left blank`);
+  else if(shortFields.length>0) issues.push(`${shortFields.length} field${shortFields.length===1?'':'s'} under 15 words`);
+  if(rev.ratings){
+    const vals = MANAGER_RATINGS.map(f=>rev.ratings[f.key]).filter(v=>v!=null);
+    if(vals.length===MANAGER_RATINGS.length && new Set(vals).size===1) issues.push(`All ratings identical (${vals[0]}/5)`);
+  }
+  if(rev.submittedAt && cycle.endDate && rev.submittedAt.slice(0,10) > cycle.endDate) issues.push('Submitted after cycle end date');
+  return issues;
+}
 function viewManagerReports(cycle, person){
   const managers = managersList().slice().sort((a,b)=>a.name.localeCompare(b.name));
   if(managers.length===0) return `<div class="card"><h2>Manager reports</h2><div class="empty">No managers yet.</div></div>`;
@@ -2107,10 +2126,16 @@ function viewManagerReports(cycle, person){
   const dutiesDone = reviewsDone + oneOnOnesDone;
   const dutiesPct = dutiesTotal ? Math.round(dutiesDone/dutiesTotal*100) : 0;
 
-  // No quality-flagging mechanism exists anywhere in this app for manager reviews (checked —
-  // nothing tags a review as low-quality or incomplete beyond submitted/not). Showing 0 honestly
-  // rather than inventing a flag source.
-  const qualityFlags = 0;
+  const qualityIssues = reports.map(r=>{
+    const rev = findReview('manager', cycle.id, x=>x.employeeId===r.id && x.status==='submitted');
+    if(!rev) return null;
+    const issues = managerReviewQualityIssues(rev, cycle);
+    const oneOnOne = oneOnOneFor(r.id, cycle.id);
+    if(!oneOnOne || oneOnOne.status!=='completed') issues.push('1:1 not completed yet');
+    if(issues.length===0) return null;
+    return {person:r, issues};
+  }).filter(Boolean);
+  const qualityFlags = qualityIssues.length;
 
   const teamSaysVisible = upwardVisible(m.id, cycle.id);
   const upwardSummary = upwardSummaryFor(m.id, cycle.id);
@@ -2148,7 +2173,7 @@ function viewManagerReports(cycle, person){
     <div class="stat" ${upwardResponseCount>0?'style="cursor:pointer;" data-toggle-mreports-raw="1"':''}><div class="num">${scoreBadge(upwardScore)}</div><div class="lbl">Upward feedback · ${upwardResponseCount} response${upwardResponseCount===1?'':'s'}${upwardResponseCount>0?(STATE.mreportsShowRaw?' · hide ▲':' · read ▼'):''}</div></div>
     <div class="stat"><div class="num">${givenAvg!==null?givenAvg.toFixed(1):'—'}</div><div class="lbl">Avg score given (co. avg ${companyAvg!==null?companyAvg.toFixed(1):'—'})</div></div>
     <div class="stat"><div class="num">${dutiesPct}%</div><div class="lbl">Cycle duties completed</div></div>
-    <div class="stat ${qualityFlags>0?'bad':''}"><div class="num">${qualityFlags}</div><div class="lbl">Quality flags</div></div>
+    <div class="stat ${qualityFlags>0?'bad':''}" ${qualityFlags>0?'style="cursor:pointer;" data-toggle-mreports-quality="1"':''}><div class="num">${qualityFlags}</div><div class="lbl">Quality flags${qualityFlags>0?(STATE.mreportsShowQuality?' · hide ▲':' · read ▼'):''}</div></div>
   </div>
 
   ${STATE.mreportsShowRaw && upwardList.length>0 ? `<div class="card">
@@ -2159,6 +2184,15 @@ function viewManagerReports(cycle, person){
       <div><b>Support received:</b> ${escapeHtml(r.answers.strengths)||'—'}</div>
       <div><b>Opportunities for improvement:</b> ${escapeHtml(r.answers.improvements)||'—'}</div>
       ${r.answers.other?`<div><b>Other:</b> ${escapeHtml(r.answers.other)}</div>`:''}
+    </div>`).join('')}
+  </div>` : ''}
+
+  ${STATE.mreportsShowQuality && qualityIssues.length>0 ? `<div class="card">
+    <h3 style="margin-top:0;">Quality flags — ${escapeHtml(m.name)}</h3>
+    <div class="desc">Reviews with signals worth a second look before publishing.</div>
+    ${qualityIssues.map(q=>`<div class="quote-card">
+      <div class="meta">${escapeHtml(q.person.name)}</div>
+      <div>${q.issues.map(i=>escapeHtml(i)).join(' · ')}</div>
     </div>`).join('')}
   </div>` : ''}
 
@@ -3886,8 +3920,9 @@ function bindViewEvents(role, nav, cycle, person){
   }));
 
   // Manager Reports (admin only, internal, never published).
-  document.getElementById('mreportsSelect')?.addEventListener('change', (e)=>{ STATE.mreportsManagerId = e.target.value; STATE.mreportsShowRaw = false; render(); });
+  document.getElementById('mreportsSelect')?.addEventListener('change', (e)=>{ STATE.mreportsManagerId = e.target.value; STATE.mreportsShowRaw = false; STATE.mreportsShowQuality = false; render(); });
   document.querySelector('[data-toggle-mreports-raw]')?.addEventListener('click', ()=>{ STATE.mreportsShowRaw = !STATE.mreportsShowRaw; render(); });
+  document.querySelector('[data-toggle-mreports-quality]')?.addEventListener('click', ()=>{ STATE.mreportsShowQuality = !STATE.mreportsShowQuality; render(); });
   document.querySelectorAll('[data-toggle-cwf-person]').forEach(el=>el.addEventListener('click', ()=>{ const pid = el.dataset.toggleCwfPerson; STATE.cwfExpandedId = (STATE.cwfExpandedId===pid) ? null : pid; render(); }));
   document.querySelectorAll('[data-toggle-deptreport-person]').forEach(el=>el.addEventListener('click', ()=>{ const pid = el.dataset.toggleDeptreportPerson; STATE.deptReportExpandedId = (STATE.deptReportExpandedId===pid) ? null : pid; render(); }));
   document.querySelectorAll('textarea[data-mgr-recommendation]').forEach(el=>{
