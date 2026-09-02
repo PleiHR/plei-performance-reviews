@@ -630,6 +630,7 @@ let STATE = {
   dashboardPeopleDetailId: null,
   mreportsManagerId: null,
   mreportsShowRaw: false,
+  cwfExpandedId: null,
 };
 
 function currentPerson(){ return DB.people.find(p=>p.id===STATE.viewAs); }
@@ -2608,52 +2609,48 @@ function viewPeerHR(cycle){
   const zero = coverageRows.filter(r=>r.count===0).length;
 
   return `<div class="card">
-    <h2>Company wide feedback — response counts</h2>
-    <div class="desc">${cycle.label} — anyone can leave feedback about anyone, anytime; it's optional, so counts vary by person. Raw feedback reaches HR as soon as it's submitted — publish a summary below whenever you're ready to share it with them and their manager.</div>
+    <h2>Company wide feedback</h2>
+    <div class="desc">${cycle.label} — anyone can leave feedback about anyone, anytime; it's optional, so counts vary by person. Raw feedback reaches HR as soon as it's submitted. Click a person with responses to read their feedback and publish a summary whenever you're ready to share it with them and their manager.</div>
     <div class="row" style="margin-bottom:10px;">
       <span class="tag">${reviews.length} pieces of feedback received</span>
       <span class="badge neutral">${zero} with none yet</span>
     </div>
     <table><thead><tr><th>Person</th><th>Responses</th></tr></thead><tbody>
-    ${coverageRows.map(r=>`<tr>
-      <td><div class="person-cell"><div class="avatar">${initials(r.p.name)}</div>${r.p.name}</div></td>
-      <td>${r.count}</td>
-    </tr>`).join('')}
-    </tbody></table>
-  </div>
-  <div class="card">
-    <h2>Feedback content — HR only</h2>
-    <div class="desc">Grouped by the person being reviewed — the author is never revealed, even to HR. Raw quotes below never reach the person or their manager; write a summary in your own words and publish it whenever you're ready.</div>
-    <div class="row" style="margin-bottom:10px;"><span class="tag">${reviews.length} received in total</span></div>
-    ${Object.keys(byTarget).length===0?'<div class="empty">No feedback yet this cycle.</div>':''}
-    ${Object.keys(byTarget).map(tid=>{
-      const person = getPerson(tid);
-      const list = byTarget[tid];
+    ${coverageRows.map(r=>{
+      const list = byTarget[r.p.id] || [];
+      const clickable = list.length>0;
+      const expanded = clickable && STATE.cwfExpandedId===r.p.id;
+      const rowHtml = `<tr ${clickable?`style="cursor:pointer;" data-toggle-cwf-person="${r.p.id}"`:''}>
+        <td><div class="person-cell"><div class="avatar">${initials(r.p.name)}</div>${r.p.name}</div></td>
+        <td>${r.count}${clickable?(expanded?' · hide ▲':' · read ▼'):''}</td>
+      </tr>`;
+      if(!expanded) return rowHtml;
       const avgScore = avg(list.map(ratingAvgOfReview).filter(Boolean));
       const lowCount = list.length < ANONYMITY_MIN;
-      const summary = peerSummaryFor(tid, cycle.id);
-      const summaryDraft = loadLocalDraft(draftKey('peerSummary', cycle.id, tid));
-      return `<div style="margin-bottom:18px;">
-        <div class="row" style="justify-content:space-between;">
-          <div class="person-cell"><div class="avatar">${initials(person.name)}</div><b>${person.name}</b><span class="tag">${person.department}</span></div>
-          <div class="small muted">${list.length} pieces of feedback · average ${avgScore?avgScore.toFixed(1):'—'}</div>
-        </div>
-        ${list.map(r=>`<div class="quote-card">
-          <div class="meta">Anonymous · ${fmtDate((r.createdAt||'').slice(0,10))} · Collaboration ${r.ratings.collaboration} · Reliability ${r.ratings.reliability} · Impact ${r.ratings.impact}</div>
-          <div><b>Strengths:</b> ${escapeHtml(r.answers.strengths)||'—'}</div>
-          ${r.answers.example?`<div><b>Example:</b> ${escapeHtml(r.answers.example)}</div>`:''}
-          ${r.answers.growth?`<div><b>Suggestion:</b> ${escapeHtml(r.answers.growth)}</div>`:''}
+      const summary = peerSummaryFor(r.p.id, cycle.id);
+      const summaryDraft = loadLocalDraft(draftKey('peerSummary', cycle.id, r.p.id));
+      const expandedHtml = `<tr><td colspan="2" style="background:var(--bg);">
+        <div style="padding:16px 4px;">
+        <div class="small muted" style="margin-bottom:10px;">${list.length} pieces of feedback for ${r.p.name} · average ${avgScore?avgScore.toFixed(1):'—'}</div>
+        ${list.map(rv=>`<div class="quote-card">
+          <div class="meta">Anonymous · ${fmtDate((rv.createdAt||'').slice(0,10))} · Collaboration ${rv.ratings.collaboration} · Reliability ${rv.ratings.reliability} · Impact ${rv.ratings.impact}</div>
+          <div><b>Strengths:</b> ${escapeHtml(rv.answers.strengths)||'—'}</div>
+          ${rv.answers.example?`<div><b>Example:</b> ${escapeHtml(rv.answers.example)}</div>`:''}
+          ${rv.answers.growth?`<div><b>Suggestion:</b> ${escapeHtml(rv.answers.growth)}</div>`:''}
         </div>`).join('')}
         ${lowCount ? `<div class="login-note">Heads up: fewer than ${ANONYMITY_MIN} responses — summarizing very specific wording could make it easier to guess who wrote it. You can still publish whenever you're ready.</div>` : ''}
-        <div class="field"><label>Summary to share with ${person.name} and their manager</label><div class="hint">Summarize the raw feedback above in your own words — this is what they'll see, never the raw quotes.</div>
-          <textarea data-peer-summary-themes="${tid}">${summaryDraft&&summaryDraft.themes!==undefined?escapeHtml(summaryDraft.themes):(summary?escapeHtml(summary.themes||''):'')}</textarea>
+        <div class="field"><label>Summary to share with ${r.p.name} and their manager</label><div class="hint">Summarize the raw feedback above in your own words — this is what they'll see, never the raw quotes.</div>
+          <textarea data-peer-summary-themes="${r.p.id}">${summaryDraft&&summaryDraft.themes!==undefined?escapeHtml(summaryDraft.themes):(summary?escapeHtml(summary.themes||''):'')}</textarea>
         </div>
         <div class="row">
-          <button class="btn sm" data-publish-peer-summary="${tid}">${summary&&summary.published?'Update published summary':'Publish summary'}</button>
+          <button class="btn sm" data-publish-peer-summary="${r.p.id}">${summary&&summary.published?'Update published summary':'Publish summary'}</button>
           ${summary&&summary.published?`<span class="badge ok">${icon('check',11)} Published ${fmtDate((summary.publishedAt||'').slice(0,10))}</span>`:''}
         </div>
-      </div>`;
+        </div>
+      </td></tr>`;
+      return rowHtml + expandedHtml;
     }).join('')}
+    </tbody></table>
   </div>`;
 }
 
@@ -3853,6 +3850,7 @@ function bindViewEvents(role, nav, cycle, person){
   // Manager Reports (admin only, internal, never published).
   document.getElementById('mreportsSelect')?.addEventListener('change', (e)=>{ STATE.mreportsManagerId = e.target.value; STATE.mreportsShowRaw = false; render(); });
   document.querySelector('[data-toggle-mreports-raw]')?.addEventListener('click', ()=>{ STATE.mreportsShowRaw = !STATE.mreportsShowRaw; render(); });
+  document.querySelectorAll('[data-toggle-cwf-person]').forEach(el=>el.addEventListener('click', ()=>{ const pid = el.dataset.toggleCwfPerson; STATE.cwfExpandedId = (STATE.cwfExpandedId===pid) ? null : pid; render(); }));
   document.querySelectorAll('textarea[data-mgr-recommendation]').forEach(el=>{
     wireAutosaveTextarea(el, async (value)=>{
       const meP = sessionPerson();
