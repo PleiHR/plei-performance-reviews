@@ -3003,7 +3003,7 @@ function addFollowUpModal(manager){
     if(!checkpointDate){ alert('Please choose a checkpoint date.'); return; }
     const docRef = fdb.collection('followUps').doc();
     await docRef.set({
-      personId, managerId: manager.id, commitment, checkpointDate,
+      personId, managerId: manager.id, managerEmail: manager.email, commitment, checkpointDate,
       status:'open', loggedEntries:[], createdAt:new Date().toISOString(), createdBy: sessionPerson().email
     });
     document.getElementById('addFollowUpModalBg').remove(); toast('Commitment added'); render();
