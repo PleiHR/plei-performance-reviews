@@ -2419,7 +2419,7 @@ function deptReportPersonCardHtml(e, isAdmin, dept){
           <textarea data-autosave-id="dsRec_${p.id}" data-entry-recommendation="${p.id}" data-dept="${escapeHtml(dept)}" rows="3" placeholder="What should happen next for ${escapeHtml(p.name)}?">${escapeHtml(e.recommendation)}</textarea>
         </div>
         <div class="small muted" data-save-status-for="dsRec_${p.id}">&nbsp;</div>
-    ` : (e.recommendation ? `<div class="block"><b>Recommendation</b><p>${escapeHtml(e.recommendation)}</p></div>` : '')}
+      ` : (e.recommendation ? `<div class="block"><b>Recommendation</b><p>${escapeHtml(e.recommendation)}</p></div>` : '')}
     </div>`;
   }
   return `<div class="card">
@@ -2434,7 +2434,7 @@ function deptReportPersonCardHtml(e, isAdmin, dept){
     ${isAdmin ? `
       <div class="field" style="margin-bottom:10px;max-width:220px;"><label>Status</label>
         <select data-entry-status="${p.id}" data-dept="${escapeHtml(dept)}">
-          <option value="no" ${e.status==='no'?'selected':''}No action</option>
+          <option value="no" ${e.status==='no'?'selected':''}>No action</option>
           <option value="monitor" ${e.status==='monitor'?'selected':''}>Monitor</option>
           <option value="yes" ${e.status==='yes'?'selected':''}>PIP</option>
         </select>
