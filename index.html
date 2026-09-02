@@ -631,6 +631,7 @@ let STATE = {
   mreportsManagerId: null,
   mreportsShowRaw: false,
   cwfExpandedId: null,
+  deptReportExpandedId: null,
 };
 
 function currentPerson(){ return DB.people.find(p=>p.id===STATE.viewAs); }
@@ -2388,11 +2389,37 @@ function deptReportEntries(dept, cycle, report){
 function deptReportPersonCardHtml(e, isAdmin, dept){
   const p = e.person;
   if(!e.notable){
-    return `<div class="card" style="padding:14px 18px;">
-      <div class="row" style="justify-content:space-between;align-items:center;">
-        <div class="person-cell"><div class="avatar">${initials(p.name)}</div><b>${escapeHtml(p.name)}</b></div>
-        <div class="row" style="gap:10px;">${scoreBadge(e.score)}${sevTag('no')}</div>
+    const expanded = STATE.deptReportExpandedId===p.id;
+    if(!expanded){
+      return `<div class="card" style="padding:14px 18px;cursor:pointer;" data-toggle-deptreport-person="${p.id}">
+        <div class="row" style="justify-content:space-between;align-items:center;">
+          <div class="person-cell"><div class="avatar">${initials(p.name)}</div><b>${escapeHtml(p.name)}</b></div>
+          <div class="row" style="gap:10px;">${scoreBadge(e.score)}${sevTag('no')}<span class="small muted">Expand ▼</span></div>
+        </div>
+      </div>`;
+    }
+    return `<div class="card">
+      <div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;cursor:pointer;" data-toggle-deptreport-person="${p.id}">
+        <div class="person-cell"><div class="avatar">${initials(p.name)}</div><div><b>${escapeHtml(p.name)}</b><div class="small muted">Reviewed by ${escapeHtml(e.reviewerOfRecord)}</div></div></div>
+        <div class="row" style="gap:10px;">${scoreBadge(e.score)}${sevTag('no')}<span class="small muted">Hide ▲</span></div>
       </div>
+      <div class="divider"></div>
+      <div class="block"><b>In their words</b><p>${escapeHtml(e.inTheirWords)||'No self-review submitted yet.'}</p></div>
+      <div class="block"><b>Manager's assessment</b><p>${escapeHtml(e.managersAssessment)||'Manager review not submitted yet.'}</p></div>
+      <div class="block"><b>1:1 outcome</b><p>${escapeHtml(e.oneOnOneOutcome)}</p></div>
+      ${isAdmin ? `
+        <div class="field" style="margin-bottom:10px;max-width:220px;"><label>Status</label>
+          <select data-entry-status="${p.id}" data-dept="${escapeHtml(dept)}">
+            <option value="no" ${e.status==='no'?'selected':''}>No action</option>
+            <option value="monitor" ${e.status==='monitor'?'selected':''}>Monitor</option>
+            <option value="yes" ${e.status==='yes'?'selected':''}>PIP</option>
+          </select>
+        </div>
+        <div class="field" style="margin-bottom:2px;"><label>Recommendation <span class="small muted" style="font-weight:400;text-transform:none;letter-spacing:0;">— drafted for you · edit before publishing</span></label>
+          <textarea data-autosave-id="dsRec_${p.id}" data-entry-recommendation="${p.id}" data-dept="${escapeHtml(dept)}" rows="3" placeholder="What should happen next for ${escapeHtml(p.name)}?">${escapeHtml(e.recommendation)}</textarea>
+        </div>
+        <div class="small muted" data-save-status-for="dsRec_${p.id}">&nbsp;</div>
+      ` : (e.recommendation ? `<div class="block"><b>Recommendation</b><p>${escapeHtml(e.recommendation)}</p></div>` : '')}
     </div>`;
   }
   return `<div class="card">
@@ -3862,6 +3889,7 @@ function bindViewEvents(role, nav, cycle, person){
   document.getElementById('mreportsSelect')?.addEventListener('change', (e)=>{ STATE.mreportsManagerId = e.target.value; STATE.mreportsShowRaw = false; render(); });
   document.querySelector('[data-toggle-mreports-raw]')?.addEventListener('click', ()=>{ STATE.mreportsShowRaw = !STATE.mreportsShowRaw; render(); });
   document.querySelectorAll('[data-toggle-cwf-person]').forEach(el=>el.addEventListener('click', ()=>{ const pid = el.dataset.toggleCwfPerson; STATE.cwfExpandedId = (STATE.cwfExpandedId===pid) ? null : pid; render(); }));
+  document.querySelectorAll('[data-toggle-deptreport-person]').forEach(el=>el.addEventListener('click', ()=>{ const pid = el.dataset.toggleDeptreportPerson; STATE.deptReportExpandedId = (STATE.deptReportExpandedId===pid) ? null : pid; render(); }));
   document.querySelectorAll('textarea[data-mgr-recommendation]').forEach(el=>{
     wireAutosaveTextarea(el, async (value)=>{
       const meP = sessionPerson();
