@@ -1029,10 +1029,13 @@ function render(){
   const managerItems = [];
   const adminItems = [];
   if(hasReports(person.id)){
-    managerItems.push(
-      {id:'myteam', icon:'users', label:'Team Home'},
-      {id:'deptSummaries', icon:'book', label:'Department Report'},
-    );
+    managerItems.push({id:'myteam', icon:'users', label:'Team Home'});
+    // Department Report only ever goes to the auto-detected head of one of the 5 canonical
+    // groups (matches "Publish to manager", which only ever emails that same head) - a
+    // sub-team manager with direct reports still gets Team Home, not the whole department.
+    if(DEPT_SUMMARY_GROUPS.some(g=>(deptHeadFor(g)||{}).id===person.id)){
+      managerItems.push({id:'deptSummaries', icon:'book', label:'Department Report'});
+    }
   }
   if(role==='hr'){
     adminItems.push(
@@ -2357,9 +2360,12 @@ function viewDeptSummaries(cycle, person){
     if(!STATE.deptSummaryDept || !DEPT_SUMMARY_GROUPS.includes(STATE.deptSummaryDept)) STATE.deptSummaryDept = DEPT_SUMMARY_GROUPS[0];
     return viewDeptReport(STATE.deptSummaryDept, cycle, person, true);
   }
-  // Manager: straight to their own department's report, no tabs, no picker.
-  const dept = deptGroupFor(person.id) || person.department;
-  return viewDeptReport(dept, cycle, person, false);
+  // Manager: only the auto-detected department head gets the live report, straight to their
+  // own department, no tabs, no picker — everyone else with direct reports has Team Home but
+  // not this view. Re-checked here (not just at the nav level) in case STATE.nav is stale.
+  const headGroup = DEPT_SUMMARY_GROUPS.find(g=>(deptHeadFor(g)||{}).id===person.id);
+  if(!headGroup) return `<div class="card"><h2>Department Report</h2><div class="empty">Department reports are only visible to the head of each department.</div></div>`;
+  return viewDeptReport(headGroup, cycle, person, false);
 }
 
 // Resolves which of the 5 canonical summary groups (DEPT_SUMMARY_GROUPS) a person belongs to,
