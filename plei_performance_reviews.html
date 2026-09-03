@@ -999,6 +999,112 @@ async function autoSyncCycleCalendarsOnLogin(){
   if(DB_LOADED) render();
 }
 
+// Client-triggered reminder cadence (no backend/cron in this app): once per page load, right
+// after an HR person logs in, checks each open cycle for people with pending self-reviews,
+// upward reviews, or manager reviews and sends a nudge email to whoever owes the action —
+// weekly while the cycle is open, daily during the final 3 days. Only ever acts silently, the
+// same way the calendar auto-sync above does: if HR hasn't granted Gmail send access before,
+// this simply does nothing (no popup), and the manual "nudge" button in the Dashboard still
+// works for a one-off reminder. De-dupe state lives in this browser's localStorage rather than
+// Firestore (no new security rules needed) — it resets per device, which is fine since a
+// spare nudge is harmless.
+const REMINDER_LOG_KEY = 'plei_reminderLog_v1';
+function loadReminderLog(){ try{ return JSON.parse(localStorage.getItem(REMINDER_LOG_KEY)||'{}'); }catch(e){ return {}; } }
+function saveReminderLog(log){ try{ localStorage.setItem(REMINDER_LOG_KEY, JSON.stringify(log)); }catch(e){} }
+function reminderDue(log, key, finalStretch, todayStr){
+  const last = log[key];
+  if(!last) return true;
+  if(finalStretch) return last.slice(0,10) !== todayStr;
+  const days = (new Date(todayStr) - new Date(last.slice(0,10))) / 86400000;
+  return days >= 7;
+}
+let reminderAutoSendDone = false;
+async function autoSendDueRemindersOnLogin(){
+  if(reminderAutoSendDone) return;
+  reminderAutoSendDone = true;
+  const person = sessionPerson();
+  if(!person || person.role!=='hr') return;
+  const openCycles = DB.cycles.filter(c=>c.status==='open');
+  let sent = 0;
+  for(const cycle of openCycles){
+    try{ sent += await sendDueRemindersForCycle(cycle); }
+    catch(e){ console.error('auto reminder send failed for cycle', cycle.id, e); }
+  }
+  if(sent>0) toast('Sent ' + sent + ' automatic reminder' + (sent===1?'':'s'));
+}
+async function sendDueRemindersForCycle(cycle){
+  const daysLeft = cycle.endDate ? Math.ceil((new Date(cycle.endDate+'T23:59:59') - new Date()) / 86400000) : null;
+  if(daysLeft!==null && daysLeft < 0) return 0;
+  const finalStretch = daysLeft!==null && daysLeft <= 3;
+  const todayStr = new Date().toISOString().slice(0,10);
+  const log = loadReminderLog();
+  const employeeDue = new Map();
+  const managerDue = new Map();
+  DB.people.filter(p=>!p.deactivated).forEach(p=>{
+    const selfRev = findReview('self', cycle.id, x=>x.employeeId===p.id);
+    if(!(selfRev && selfRev.status==='submitted')){
+      if(!employeeDue.has(p.id)) employeeDue.set(p.id, {person:p, kinds:[]});
+      employeeDue.get(p.id).kinds.push('your self-review');
+    }
+    if(p.managerId){
+      const upwardDone = DB.upwardAuthorship.find(r=>r.cycleId===cycle.id && r.managerId===p.managerId && r.authorEmail===p.email);
+      if(!upwardDone){
+        if(!employeeDue.has(p.id)) employeeDue.set(p.id, {person:p, kinds:[]});
+        employeeDue.get(p.id).kinds.push('your anonymous review of your manager');
+      }
+      const mgrRev = findReview('manager', cycle.id, x=>x.employeeId===p.id && x.status==='submitted');
+      if(!mgrRev){
+        const mgr = getPerson(p.managerId);
+        if(mgr){
+          if(!managerDue.has(mgr.id)) managerDue.set(mgr.id, {manager:mgr, count:0});
+          managerDue.get(mgr.id).count++;
+        }
+      }
+    }
+  });
+  let sent = 0;
+  const MAX_SENDS = 25;
+  for(const {person:p, kinds} of employeeDue.values()){
+    if(sent>=MAX_SENDS) break;
+    if(!p.email || !kinds.length) continue;
+    const key = 'emp_' + p.id + '_' + cycle.id;
+    if(!reminderDue(log, key, finalStretch, todayStr)) continue;
+    try{
+      await sendGmail({
+        to: p.email,
+        subject: 'Reminder: pending review items — ' + cycle.label,
+        bodyHtml: '<p>Hi ' + escapeHtml(p.name) + ',</p>' +
+          '<p>Friendly reminder that you still have pending items this cycle: ' + kinds.join(', ') + '.</p>' +
+          '<p>Check your To-Dos in Plei Performance to finish up.</p>' +
+          '<p>— Plei Performance HR</p>'
+      });
+      log[key] = new Date().toISOString();
+      saveReminderLog(log);
+      sent++;
+    }catch(e){ console.error('auto reminder failed for', p.email, e); }
+  }
+  for(const {manager:m, count} of managerDue.values()){
+    if(sent>=MAX_SENDS) break;
+    if(!m.email || !count) continue;
+    const key = 'mgr_' + m.id + '_' + cycle.id;
+    if(!reminderDue(log, key, finalStretch, todayStr)) continue;
+    try{
+      await sendGmail({
+        to: m.email,
+        subject: 'Reminder: ' + count + ' pending manager review' + (count===1?'':'s') + ' — ' + cycle.label,
+        bodyHtml: '<p>Hi ' + escapeHtml(m.name) + ',</p>' +
+          '<p>Friendly reminder that you still have <b>' + count + '</b> manager review' + (count===1?'':'s') + ' pending this cycle.</p>' +
+          '<p>Check My Team in Plei Performance to finish up.</p>' +
+          '<p>— Plei Performance HR</p>'
+      });
+      log[key] = new Date().toISOString();
+      saveReminderLog(log);
+      sent++;
+    }catch(e){ console.error('auto reminder failed for', m.email, e); }
+  }
+  return sent;
+}
+
 
 function findReview(type, cycleId, matchFn){ return DB.reviews[type].find(r=>r.cycleId===cycleId && matchFn(r)); }
 
@@ -1098,6 +1204,7 @@ function initApp(){
       DB_LOADED = true;
       render();
       autoSyncCycleCalendarsOnLogin();
+      autoSendDueRemindersOnLogin();
     });
   });
 }
@@ -4322,6 +4429,19 @@ function bindViewEvents(role, nav, cycle, person){
       targetEmail: target.email, managerEmail: targetMgr?targetMgr.email:null,
       avgRatings, themes, responseCount:list.length, published:true, publishedAt:new Date().toISOString()
     }, {merge:true});
+    try{
+      const recipients = [target, targetMgr].filter(p=>p && p.email);
+      for(const rp of recipients){
+        await sendGmail({
+          to: rp.email,
+          subject: 'Company wide feedback summary ready — ' + cycle.label,
+          bodyHtml: '<p>Hi ' + escapeHtml(rp.name) + ',</p>' +
+            '<p>HR has published a company wide feedback summary for <b>' + escapeHtml(target.name) + '</b> (' + escapeHtml(cycle.label) + ') in Plei Performance.</p>' +
+            '<p>You can view it under My Profile in the app.</p>' +
+            '<p>— Plei Performance HR</p>'
+        });
+      }
+    }catch(e){ console.error('sendGmail (company wide summary published) failed:', e); }
     clearLocalDraft(draftKey('peerSummary', cycle.id, targetId));
     toast('Summary published to person and manager'); render();
   }));
@@ -4532,7 +4652,27 @@ function bindSelfFormEvents(cycle, person){
       answers: collect(), status, submittedAt:new Date().toISOString()
     }, {merge:true});
   }
-  submitBtn?.addEventListener('click', async ()=>{ await upsert('submitted'); clearLocalDraft(dKey); toast('Self-review submitted — your manager can now read it'); render(); });
+  submitBtn?.addEventListener('click', async ()=>{
+    await upsert('submitted');
+    clearLocalDraft(dKey);
+    if(person.managerId){
+      const mgr = getPerson(person.managerId);
+      if(mgr && mgr.email){
+        try{
+          await sendGmail({
+            to: mgr.email,
+            subject: escapeHtml(person.name) + "'s self-review is ready — " + cycle.label,
+            bodyHtml: '<p>Hi ' + escapeHtml(mgr.name) + ',</p>' +
+              '<p><b>' + escapeHtml(person.name) + '</b> has submitted their self-review for <b>' + escapeHtml(cycle.label) + '</b> in Plei Performance.</p>' +
+              '<p>You can read it before writing your manager review under My Team.</p>' +
+              '<p>— Plei Performance</p>'
+          });
+        }catch(e){ console.error('sendGmail (self-review submitted) failed:', e); }
+      }
+    }
+    toast('Self-review submitted — your manager can now read it');
+    render();
+  });
   draftBtn?.addEventListener('click', async ()=>{ await upsert('draft'); clearLocalDraft(dKey); toast('Draft saved'); });
 }
 
