@@ -59,7 +59,7 @@
   .grid-2{grid-template-columns:repeat(2,1fr);}
   .grid-4{grid-template-columns:repeat(4,1fr);}
   @media(max-width:900px){.grid-3,.grid-2,.grid-4{grid-template-columns:1fr;}}
-  .stat{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px;}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px;display:flex;flex-direction:column;justify-content:center;min-height:74px;}
   .stat.bad{border-color:var(--bad);}
   .stat.warn{border-color:var(--warn);}
   .stat.warn .num{color:var(--warn);}
@@ -3798,6 +3798,14 @@ function viewMyReviews(cycle, person){
   }
   const trend = (latestScored && priorScored) ? (latestScored.score - priorScored.score) : null;
 
+  // Lifetime average: every cycle with a submitted, scoreable manager review, not just the
+  // latest one — gives a fuller picture than a single cycle's snapshot.
+  const lifetimeScores = cyclesDesc.map(c=>{
+    const mgrRev = findReview('manager', c.id, x=>x.employeeId===person.id && x.status==='submitted');
+    return mgrRev ? ratingAvgOfReview(mgrRev) : null;
+  }).filter(v=>v!==null && v!==undefined);
+  const lifetimeAvg = lifetimeScores.length ? avg(lifetimeScores) : null;
+
   // Coffee chats this year: pairings involving this person where a calendar invite exists.
   const thisYear = String(new Date().getFullYear());
   const coffeeThisYear = (DB.coffeeChats||[]).filter(c=>(c.personA===person.id || c.personB===person.id) && c.calendarEventId && (c.month||'').slice(0,4)===thisYear).length;
@@ -3833,8 +3841,9 @@ function viewMyReviews(cycle, person){
       <button class="btn ghost sm" id="signOutBtnProfile">Sign out</button>
     </div>
   </div>
-  <div class="grid grid-4">
+  <div class="grid" style="grid-template-columns:repeat(auto-fit, minmax(150px, 1fr));">
     <div class="stat"><div class="num">${latestScored?scoreBadge(latestScored.score):'<span class="score na">—</span>'}</div><div class="lbl">My score${latestScored?' · '+escapeHtml(latestScored.cycle.label):''}</div></div>
+    <div class="stat"><div class="num">${lifetimeAvg===null?'<span class="score na">—</span>':scoreBadge(lifetimeAvg)}</div><div class="lbl">Lifetime average${lifetimeScores.length?' · '+lifetimeScores.length+' cycle'+(lifetimeScores.length===1?'':'s'):''}</div></div>
     <div class="stat"><div class="num">${trend===null?'—':(trend>=0?'▲ +':'▼ −')+Math.abs(trend).toFixed(1)}</div><div class="lbl">Trend vs last cycle</div></div>
     <div class="stat"><div class="num">${coffeeThisYear}</div><div class="lbl">Coffee chats this year</div></div>
     <div class="stat"><div class="num">${onTimePct===null?'—':onTimePct+'%'}</div><div class="lbl">On-time percentage</div></div>
