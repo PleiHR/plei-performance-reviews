@@ -1043,7 +1043,7 @@ function render(){
       {id:'deptSummaries', icon:'book', label:'Department Reports'},
       {id:'peer', icon:'users', label:'Company Wide Feedback'},
       {id:'mreports', icon:'file', label:'Manager Reports'},
-      {id:'cyclepeople', icon:'calendar', label:'Cycle & People'},
+      {id:'cyclepeople', icon:'calendar', label:'Organization'},
     );
   }
   const helpItems = [
@@ -1082,8 +1082,8 @@ function render(){
             <div class="topbar-title">Preview as:</div>
             <select id="previewSelect">
               <option value="">Myself (HR)</option>
-              <optgroup label="Managers">${DB.people.filter(p=>p.id!==sp.id && hasReports(p.id)).map(p=>`<option value="${p.id}" ${STATE.previewPersonId===p.id?'selected':''}>${p.name} · ${p.department}</option>`).join('')}</optgroup>
-              <optgroup label="Employees">${DB.people.filter(p=>p.id!==sp.id && !hasReports(p.id)).map(p=>`<option value="${p.id}" ${STATE.previewPersonId===p.id?'selected':''}>${p.name} · ${p.department}</option>`).join('')}</optgroup>
+              <optgroup label="Managers">${DB.people.filter(p=>p.id!==sp.id && !p.deactivated && hasReports(p.id)).map(p=>`<option value="${p.id}" ${STATE.previewPersonId===p.id?'selected':''}>${p.name} · ${p.department}</option>`).join('')}</optgroup>
+              <optgroup label="Employees">${DB.people.filter(p=>p.id!==sp.id && !p.deactivated && !hasReports(p.id)).map(p=>`<option value="${p.id}" ${STATE.previewPersonId===p.id?'selected':''}>${p.name} · ${p.department}</option>`).join('')}</optgroup>
             </select>
           ` : `<div class="small muted">Signed in as <b>${sp.name}</b> · ${sp.email}</div>`}
         </div>
@@ -1163,7 +1163,7 @@ function dashboardConcernRows(cycle){
       rows.push({person:p, label:(flag.status==='yes'?'PIP':'Monitor') + ' — set on the ' + flag.department + ' department report', score, action:'ping', department:flag.department});
     } else if(score!==null && score<3.5){
       rows.push({person:p, label:'Low score this cycle, not yet triaged', score, action:'reopen', department:deptGroupFor(p.id)});
-    } else if(p.role!=='hr' && !p.managerId){
+    } else if(p.role!=='hr' && !p.managerId && p.title!=='CEO'){
       rows.push({person:p, label:'No manager assigned', score:null, action:'reassign', department:null});
     }
   });
