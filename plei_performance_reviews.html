@@ -62,6 +62,9 @@
   .stat.bad{border-color:var(--bad);}
   .stat.warn{border-color:var(--warn);}
   .stat.warn .num{color:var(--warn);}
+  .stat.bad .num{color:var(--bad);}
+  .stat.ok{border-color:var(--ok);}
+  .stat.ok .num{color:var(--ok);}
   .stat .num{font-size:26px;font-weight:800;}
   .stat .lbl{color:var(--sub);font-size:12.5px;margin-top:2px;}
   table{width:100%;border-collapse:collapse;font-size:13.5px;}
@@ -705,6 +708,8 @@ let STATE = {
   autosaveFocusId: null,
   dashboardPeopleSearch: '',
   dashboardPeopleDetailId: null,
+  dashboardExpandedId: null,
+  dashboardSuggestionExpandedId: null,
   mreportsManagerId: null,
   mreportsShowRaw: false,
   mreportsShowQuality: false,
@@ -1288,139 +1293,134 @@ function dashboardPendingRows(cycle){
   pendingUpward.forEach(p=>add(p, 'Upward review'));
   return Array.from(rows.values()).sort((a,b)=>a.person.name.localeCompare(b.person.name));
 }
-function dashboardPersonDetailHtml(personId, cycle){
+
+// Any person's record, built the same way as My Team's, so the Dashboard's People search opens
+// the identical component (self-review / manager review / upward / company wide / HR summary).
+function dashboardEntryFor(personId, cycle){
   const p = getPerson(personId);
-  if(!p) return '<div class="empty">Person not found.</div>';
-  const selfRev = findReview('self', cycle.id, x=>x.employeeId===p.id);
-  const mgrRev = findReview('manager', cycle.id, x=>x.employeeId===p.id);
-  const selfDone = !!(selfRev && selfRev.status==='submitted');
-  const mgrDone = !!(mgrRev && mgrRev.status==='submitted');
-  const score = mgrDone ? ratingAvgOfReview(mgrRev) : null;
+  if(!p) return null;
   const dept = deptGroupFor(p.id);
-  const report = dept ? deptReportFor(dept) : null;
-  const admin = report && report.people ? report.people[p.id] : null;
-  const note = admin && admin.recommendation ? admin.recommendation : '';
-  return `
-    <button class="btn ghost sm" id="backToPeopleList">← Back</button>
-    <div class="row" style="justify-content:space-between;align-items:center;margin-top:14px;flex-wrap:wrap;gap:10px;">
-      <div class="person-cell"><div class="avatar">${initials(p.name)}</div><div><b>${escapeHtml(p.name)}</b><div class="small muted">${escapeHtml(p.title)||''} · ${escapeHtml(p.department)}</div></div></div>
-      ${scoreBadge(score)}
-    </div>
-    <div class="divider"></div>
-    <div class="grid grid-2">
-      <div><div class="small muted">Self-review</div><div style="margin-top:4px;">${selfDone?'<span class="badge ok">Submitted</span>':'<span class="badge bad">Pending</span>'}</div></div>
-      <div><div class="small muted">Manager review</div><div style="margin-top:4px;">${mgrDone?'<span class="badge ok">Submitted</span>':'<span class="badge bad">Pending</span>'}</div></div>
-      <div><div class="small muted">Rating</div><div style="margin-top:4px;">${scoreBadge(score)}</div></div>
-      <div><div class="small muted">Cycle status</div><div style="margin-top:4px;"><span class="badge ${cycle.status==='open'?'ok':'neutral'}">${cycle.status==='open'?'Open':'Closed'}</span></div></div>
-    </div>
-    <div class="field" style="margin-top:14px;"><label>Note</label><p style="margin:0;font-size:13.5px;white-space:pre-wrap;">${escapeHtml(note)||'—'}</p></div>
-  `;
+  const report = dept ? deptReportFor(dept) : {id:null, people:{}, status:'draft'};
+  return deptReportEntryFor(p, cycle, report);
 }
-function dashboardSuggestionInboxHtml(){
-  const list = DB.suggestions.filter(s=>!s.cleared).slice().sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
-  const pillCls = {new:'info', planned:'warn', done:'ok'};
-  const pillLabel = {new:'New', planned:'Planned', done:'Done'};
-  return `<div class="card">
-    <h3 style="margin-top:0;">Suggestion inbox</h3>
-    <div class="desc">Click a pill to move it along. Convert marks it as picked up. Items stay here until cleared.</div>
-    <div style="max-height:340px;overflow-y:auto;">
-    ${list.length===0?'<div class="empty">No suggestions yet.</div>':''}
-    ${list.map(s=>{
-      const status = s.status || 'new';
-      return `<div class="row" style="justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);align-items:flex-start;">
-        <div style="flex:1;min-width:0;"><div class="small">${escapeHtml(s.text)}</div><div class="small muted">${s.anonymous?'Anonymous':escapeHtml(s.authorName)||'—'}${s.category?' · '+escapeHtml(s.category):''}</div></div>
-        <div class="row" style="gap:6px;flex-shrink:0;">
-          <span class="stpill ${pillCls[status]||'info'}" data-cycle-suggestion-status="${s.id}" style="cursor:pointer;" title="Click to advance">${pillLabel[status]||'New'}</span>
-          ${status==='new'?`<button class="actbtn" data-convert-suggestion="${s.id}">Convert</button>`:''}
-          <span style="cursor:pointer;color:var(--sub);font-weight:700;padding:0 2px;" data-clear-suggestion="${s.id}" title="Clear">✕</span>
-        </div>
-      </div>`;
-    }).join('')}
-    </div>
+
+function dashboardPersonRowHtml(e, cycle){
+  const p = e.person;
+  const expanded = STATE.dashboardExpandedId===p.id;
+  const statusTag = e.status==='yes' ? '<span class="sevtag pip">PIP</span>' : (e.status==='monitor' ? '<span class="sevtag mon">MONITOR</span>' : '');
+  const pillHtml = statusTag ? '' : `<span class="stpill ${e.mgrDone?'ok':'warn'}">${e.mgrDone?'Complete':'In progress'}</span>`;
+  return `<div class="prow" data-toggle-dashboard-person="${p.id}">
+    <div class="who"><b>${escapeHtml(p.name)}</b><span>${escapeHtml(p.title||'')}${e.mgrStale?' · reviewed by '+escapeHtml(e.reviewerOfRecord):''}</span></div>
+    ${statusTag || pillHtml}
+    ${scoreBadge(e.score)}
+    <span class="pchev">${expanded?'▲':'▼'}</span>
+  </div>
+  ${expanded ? `<div class="pdetail">${myTeamTimelineHtml(e, cycle)}${myTeamPersonSectionsHtml(e, cycle)}</div>` : ''}`;
+}
+
+function dashboardConcernRowHtml(r){
+  return `<div class="prow" style="cursor:default;">
+    <div class="who"><b>${escapeHtml(r.person.name)}</b><span>${escapeHtml(r.label)}</span></div>
+    ${r.score!==null?scoreBadge(r.score):''}
+    <button class="actbtn" data-concern-action="${r.action}" data-person="${r.person.id}" data-dept="${escapeHtml(r.department||'')}">Triage</button>
   </div>`;
 }
+
+function dashboardDeptRowHtml(g, cycle){
+  const head = deptHeadFor(g);
+  const report = deptReportFor(g);
+  const entries = deptReportEntries(g, cycle, report);
+  const headScore = head ? scoreFor(head, cycle) : null;
+  const deptPool = [headScore, ...entries.map(e=>e.score)].filter(v=>v!==null);
+  const deptAvg = deptPool.length ? avg(deptPool) : null;
+  return `<div class="prow" style="cursor:default;">
+    <div class="who"><b>${escapeHtml(g)}</b><span>${head?escapeHtml(head.name):'—'}</span></div>
+    <div style="text-align:center;flex-shrink:0;"><div style="font-size:9px;color:#8a978f;letter-spacing:.05em;font-weight:700;">DEPT AVG</div>${scoreBadge(deptAvg)}</div>
+    <div style="text-align:center;flex-shrink:0;"><div style="font-size:9px;color:#8a978f;letter-spacing:.05em;font-weight:700;">HEAD</div>${scoreBadge(headScore)}</div>
+    <button class="btn ghost sm" data-open-dept-report="${escapeHtml(g)}">Report →</button>
+  </div>`;
+}
+
+// Short auto-generated title for the one-line suggestion inbox row - the full text only ever
+// shows once HR clicks to expand, never in the list itself.
+function suggestionTitleFor(text){
+  if(!text) return 'Suggestion';
+  const firstSentence = text.split(/[.!?\n]/)[0].trim();
+  return firstSentence.length > 72 ? firstSentence.slice(0, 72).trim() + '…' : firstSentence;
+}
+
+function dashboardSuggestionRowHtml(s){
+  const status = s.status || 'new';
+  const pillCls = {new:'info', planned:'warn', done:'ok'}[status] || 'info';
+  const pillLabel = {new:'New', planned:'Planned', done:'Done'}[status] || 'New';
+  const expanded = STATE.dashboardSuggestionExpandedId===s.id;
+  return `<div class="prow" data-toggle-dashboard-suggestion="${s.id}">
+    <div class="who"><b>${escapeHtml(suggestionTitleFor(s.text))}</b><span>${s.anonymous?'Anonymous':escapeHtml(s.authorName)||'—'}${s.category?' · '+escapeHtml(s.category):''}</span></div>
+    <span class="stpill ${pillCls}" data-cycle-suggestion-status="${s.id}" title="Click to advance">${pillLabel}</span>
+    ${status==='new'?`<span class="actbtn" data-convert-suggestion="${s.id}">Convert</span>`:''}
+    <span class="pchev">${expanded?'▲':'▼'}</span>
+  </div>
+  ${expanded ? `<div class="pdetail"><div class="pf"><b>FULL SUGGESTION</b><p>${escapeHtml(s.text)}</p></div><div style="padding:2px 14px 12px;"><span class="actbtn" data-clear-suggestion="${s.id}">Clear</span></div></div>` : ''}`;
+}
+
+function dashboardSuggestionPanelHtml(){
+  const list = DB.suggestions.filter(s=>!s.cleared).slice().sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
+  return `<div class="panel">
+    <h3 class="ph">SUGGESTION INBOX<span class="hint">one line each · click to read</span></h3>
+    ${list.length===0 ? '<div class="empty" style="padding:16px;">No suggestions yet.</div>' : list.map(dashboardSuggestionRowHtml).join('')}
+  </div>`;
+}
+
 function viewDashboard(cycle, person){
   const employees = DB.people.filter(p=>!p.deactivated);
   const mgrReviewsExpected = DB.people.filter(e=>e.managerId && !e.deactivated).length;
   const selfDone = DB.reviews.self.filter(r=>r.cycleId===cycle.id && r.status==='submitted').length;
   const mgrDone = DB.reviews.manager.filter(r=>r.cycleId===cycle.id && r.status==='submitted').length;
   const overallAvg = avg(DB.reviews.manager.filter(r=>r.cycleId===cycle.id).map(ratingAvgOfReview).filter(Boolean));
-  const cyclePct = (employees.length+mgrReviewsExpected) ? Math.round(((selfDone+mgrDone)/(employees.length+mgrReviewsExpected))*100) : 0;
+  const totalOwed = employees.length + mgrReviewsExpected;
+  const doneOwed = selfDone + mgrDone;
+  const cyclePct = totalOwed ? Math.round((doneOwed/totalOwed)*100) : 0;
   const feedbackAuthors = new Set(DB.peerAuthorship.filter(r=>r.cycleId===cycle.id).map(r=>r.authorEmail));
   const participationPct = employees.length ? Math.round(feedbackAuthors.size/employees.length*100) : 0;
 
   const concernRows = dashboardConcernRows(cycle);
-  const pendingRows = dashboardPendingRows(cycle);
+
+  const today = new Date().toISOString().slice(0,10);
+  const overdue = totalOwed>0 && cyclePct<100 && cycle.endDate && today>cycle.endDate;
+  const completionCls = overdue ? 'bad' : 'ok';
+  const completionCaption = !cycle.endDate ? 'no deadline set' : (overdue ? (totalOwed-doneOwed)+' still pending, was due '+fmtDate(cycle.endDate) : 'on track for '+fmtDate(cycle.endDate));
+
+  const avgCls = overallAvg===null ? '' : (overallAvg>=4.0 ? 'ok' : (overallAvg<3.0 ? 'bad' : 'warn'));
+  const participationCls = participationPct>=80 ? 'ok' : (participationPct>=50 ? 'warn' : 'bad');
 
   return `
   <div class="grid grid-4">
-    <div class="stat ${concernRows.length>0?'bad':''}"><div class="num">${concernRows.length}</div><div class="lbl">Needs attention</div></div>
-    <div class="stat"><div class="num">${cyclePct}%</div><div class="lbl">Cycle completion</div></div>
-    <div class="stat"><div class="num">${overallAvg?overallAvg.toFixed(1):'—'}</div><div class="lbl">Company average</div></div>
-    <div class="stat"><div class="num">${participationPct}%</div><div class="lbl">Feedback participation</div></div>
+    <div class="stat ${concernRows.length>0?'bad':'ok'}"><div class="num">${concernRows.length}</div><div class="lbl">Needs attention</div><div class="small muted" style="margin-top:2px;">concerns to triage</div></div>
+    <div class="stat ${completionCls}"><div class="num">${cyclePct}%</div><div class="lbl">Cycle completion</div><div class="small muted" style="margin-top:2px;">${escapeHtml(completionCaption)}</div></div>
+    <div class="stat ${avgCls}"><div class="num">${overallAvg?overallAvg.toFixed(1):'—'}</div><div class="lbl">Company average</div><div class="small muted" style="margin-top:2px;">all departments</div></div>
+    <div class="stat ${participationCls}"><div class="num">${participationPct}%</div><div class="lbl">Feedback participation</div><div class="small muted" style="margin-top:2px;">goal: everyone, twice a year</div></div>
   </div>
 
-  <div class="card">
-    <h3 style="margin-top:0;">Concerns</h3>
-    ${concernRows.length===0?'<div class="empty">No concerns right now.</div>':''}
-    ${concernRows.map(r=>`<div class="row" style="justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line);flex-wrap:wrap;gap:8px;">
-      <div class="row" style="gap:10px;"><b>${escapeHtml(r.person.name)}</b><span class="small muted">${escapeHtml(r.label)}</span></div>
-      <div class="row" style="gap:10px;">${r.score!==null?scoreBadge(r.score):''}<button class="actbtn" data-concern-action="${r.action}" data-person="${r.person.id}" data-dept="${escapeHtml(r.department||'')}">${r.action==='ping'?'Ping':r.action==='reopen'?'Reopen':'Reassign'}</button></div>
-    </div>`).join('')}
+  <div class="panel">
+    <h3 class="ph">CONCERNS</h3>
+    ${concernRows.length===0 ? '<div class="empty" style="padding:16px;">No concerns right now.</div>' : concernRows.map(dashboardConcernRowHtml).join('')}
   </div>
 
-  <div class="card">
-    <h3 style="margin-top:0;">Departments</h3>
-    <table><thead><tr><th>Department</th><th>Head</th><th>Team score</th><th>Manager score</th><th></th></tr></thead><tbody>
-    ${DEPT_SUMMARY_GROUPS.map(g=>{
-      const head = deptHeadFor(g);
-      const report = deptReportFor(g);
-      const entries = deptReportEntries(g, cycle, report);
-      const scored = entries.filter(e=>e.score!==null);
-      const teamScore = scored.length ? avg(scored.map(e=>e.score)) : null;
-      const headRev = head ? findReview('manager', cycle.id, x=>x.employeeId===head.id && x.status==='submitted') : null;
-      const managerScore = headRev ? ratingAvgOfReview(headRev) : null;
-      return `<tr>
-        <td><b>${escapeHtml(g)}</b></td>
-        <td>${head?`<a href="#" data-open-dept-report="${escapeHtml(g)}" style="color:var(--brand);font-weight:600;">${escapeHtml(head.name)}</a>`:'—'}</td>
-        <td>${scoreBadge(teamScore)}</td>
-        <td>${scoreBadge(managerScore)}</td>
-        <td><button class="btn ghost sm" data-open-dept-report="${escapeHtml(g)}">Report →</button></td>
-      </tr>`;
-    }).join('')}
-    </tbody></table>
+  <div class="panel">
+    <h3 class="ph">DEPARTMENTS</h3>
+    ${DEPT_SUMMARY_GROUPS.map(g=>dashboardDeptRowHtml(g, cycle)).join('')}
   </div>
 
-  <div class="card">
-    <h3 style="margin-top:0;">People</h3>
-    ${STATE.dashboardPeopleDetailId ? dashboardPersonDetailHtml(STATE.dashboardPeopleDetailId, cycle) : `
-      <input type="text" id="dashPeopleSearch" data-autosave-id="dashPeopleSearch" placeholder="Search people..." value="${escapeHtml(STATE.dashboardPeopleSearch||'')}" style="width:100%;margin-bottom:10px;">
-      <table><thead><tr><th>Person</th><th>Department</th><th>Manager</th></tr></thead><tbody>
-      ${DB.people.filter(p=>!p.deactivated).filter(p=>!STATE.dashboardPeopleSearch || p.name.toLowerCase().includes(STATE.dashboardPeopleSearch.toLowerCase())).sort((a,b)=>a.name.localeCompare(b.name)).map(p=>`
-        <tr style="cursor:pointer;" data-open-person-detail="${p.id}">
-          <td><div class="person-cell"><div class="avatar">${initials(p.name)}</div>${escapeHtml(p.name)}</div></td>
-          <td class="small muted">${escapeHtml(p.department)}</td>
-          <td class="small muted">${p.managerId?escapeHtml(getPerson(p.managerId)?getPerson(p.managerId).name:'—'):'—'}</td>
-        </tr>`).join('')}
-      </tbody></table>
-    `}
-  </div>
-
-  <div class="grid grid-2">
-    <div class="card">
-      <h3 style="margin-top:0;">Pending</h3>
-      <div style="max-height:340px;overflow-y:auto;">
-      ${pendingRows.length===0?'<div class="empty">Everyone is caught up.</div>':''}
-      ${pendingRows.map(r=>`<div class="row" style="justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line);">
-        <div><b>${escapeHtml(r.person.name)}</b><div class="small muted">${escapeHtml(r.missing.join(', '))}</div></div>
-        <button class="actbtn" data-nudge-person="${r.person.id}">Nudge</button>
-      </div>`).join('')}
-      </div>
+  <div class="panel">
+    <h3 class="ph">PEOPLE<span class="hint">search anyone · click for their complete record</span></h3>
+    <div style="padding:10px 16px;border-bottom:1px solid #f0f3f1;">
+      <input type="text" id="dashPeopleSearch" data-autosave-id="dashPeopleSearch" placeholder="Search anyone at Plei" value="${escapeHtml(STATE.dashboardPeopleSearch||'')}" style="width:100%;">
     </div>
-    ${dashboardSuggestionInboxHtml()}
-  </div>`;
-}
+    ${DB.people.filter(p=>!p.deactivated).filter(p=>!STATE.dashboardPeopleSearch || p.name.toLowerCase().includes(STATE.dashboardPeopleSearch.toLowerCase())).sort((a,b)=>a.name.localeCompare(b.name)).map(p=>dashboardPersonRowHtml(dashboardEntryFor(p.id, cycle), cycle)).join('') || '<div class="empty" style="padding:16px;">No matches.</div>'}
+  </div>
 
+  ${dashboardSuggestionPanelHtml()}`;
+}
 /* ============================= HR: CYCLES ============================= */
 function viewCycles(){
   return `
@@ -3188,14 +3188,14 @@ function viewMyTeam(cycle, person){
 
   const avgPool = (isHead ? [headEntry.score, ...entries.map(e=>e.score)] : entries.map(e=>e.score)).filter(v=>v!==null);
   const teamAvg = avgPool.length ? avg(avgPool) : null;
-  const teamAvgCls = teamAvg===null ? '' : (teamAvg>=4.0 ? 'good' : (teamAvg<3.0 ? 'bad' : 'warn'));
+  const teamAvgCls = teamAvg===null ? '' : (teamAvg>=4.0 ? 'ok' : (teamAvg<3.0 ? 'bad' : 'warn'));
 
   const totalOwed = entries.length;
   const doneOwed = entries.filter(e=>e.mgrDone).length;
   const completionPct = totalOwed ? Math.round(doneOwed/totalOwed*100) : 100;
   const today = new Date().toISOString().slice(0,10);
   const overdue = totalOwed>0 && completionPct<100 && cycle.endDate && today>cycle.endDate;
-  const completionCls = overdue ? 'bad' : 'good';
+  const completionCls = overdue ? 'bad' : 'ok';
   const completionCaption = !cycle.endDate ? 'no deadline set' : (overdue ? (totalOwed-doneOwed)+' still pending, was due '+fmtDate(cycle.endDate) : 'on track for '+fmtDate(cycle.endDate));
 
   const myFollowUps = (DB.followUps||[]).filter(f=>f.managerId===person.id).sort((a,b)=>(a.checkpointDate||'').localeCompare(b.checkpointDate||''));
@@ -4055,10 +4055,8 @@ function bindViewEvents(role, nav, cycle, person){
       el.disabled = false; el.textContent = original;
     }
   }));
-  document.querySelectorAll('[data-open-person-detail]').forEach(el=>el.addEventListener('click', ()=>{
-    STATE.dashboardPeopleDetailId = el.dataset.openPersonDetail; render();
-  }));
-  document.getElementById('backToPeopleList')?.addEventListener('click', ()=>{ STATE.dashboardPeopleDetailId = null; render(); });
+  document.querySelectorAll('[data-toggle-dashboard-person]').forEach(el=>el.addEventListener('click', ()=>{ const pid = el.dataset.toggleDashboardPerson; STATE.dashboardExpandedId = (STATE.dashboardExpandedId===pid) ? null : pid; render(); }));
+  document.querySelectorAll('[data-toggle-dashboard-suggestion]').forEach(el=>el.addEventListener('click', ()=>{ const sid = el.dataset.toggleDashboardSuggestion; STATE.dashboardSuggestionExpandedId = (STATE.dashboardSuggestionExpandedId===sid) ? null : sid; render(); }));
   (()=>{
     const el = document.getElementById('dashPeopleSearch');
     if(!el) return;
@@ -4081,14 +4079,16 @@ function bindViewEvents(role, nav, cycle, person){
     }catch(err){ console.error(err); alert('Could not send: ' + err.message); }
     el.disabled = false; el.textContent = original;
   }));
-  document.querySelectorAll('[data-cycle-suggestion-status]').forEach(el=>el.addEventListener('click', async ()=>{
+  document.querySelectorAll('[data-cycle-suggestion-status]').forEach(el=>el.addEventListener('click', async (ev)=>{
+    ev.stopPropagation();
     const s = DB.suggestions.find(x=>x.id===el.dataset.cycleSuggestionStatus);
     if(!s) return;
     const order = ['new','planned','done'];
     const next = order[(order.indexOf(s.status||'new')+1) % order.length];
     await fdb.collection('suggestions').doc(s.id).set({status:next}, {merge:true});
   }));
-  document.querySelectorAll('[data-convert-suggestion]').forEach(el=>el.addEventListener('click', async ()=>{
+  document.querySelectorAll('[data-convert-suggestion]').forEach(el=>el.addEventListener('click', async (ev)=>{
+    ev.stopPropagation();
     // No ClickUp integration is wired up in this app (no API/keys available) — Convert just
     // advances the suggestion's own lifecycle so HR can track that it's been picked up.
     const s = DB.suggestions.find(x=>x.id===el.dataset.convertSuggestion);
