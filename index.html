@@ -91,6 +91,40 @@
   .chip{display:inline-flex;align-items:center;font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#8a968f;}
   .actbtn{display:inline-flex;align-items:center;justify-content:center;width:84px;height:24px;font-size:11.5px;font-weight:500;color:var(--ink);background:#fff;border:1px solid #d4dcd7;border-radius:7px;white-space:nowrap;overflow:hidden;cursor:pointer;flex-shrink:0;}
   .actbtn:hover{border-color:#9fb0a7;}
+  /* My Team (merged Team Home + Department Report) component classes, kept distinct from the
+     generic .row/.card utility classes used everywhere else in the app. */
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);margin-bottom:12px;overflow:hidden;}
+  .panel > h3.ph{font-size:10px;letter-spacing:.08em;color:#48705f;font-weight:800;padding:11px 16px;border-bottom:1px solid #f0f3f1;margin:0;display:flex;justify-content:space-between;align-items:center;}
+  .panel > h3.ph .hint{font-size:10px;color:#8a978f;font-weight:500;letter-spacing:0;text-transform:none;}
+  .prow{display:flex;align-items:center;gap:10px;padding:11px 16px;border-bottom:1px solid #f0f3f1;cursor:pointer;}
+  .prow:last-child{border-bottom:none;}
+  .prow .who{flex:1;min-width:0;}
+  .prow .who b{font-size:13px;}
+  .prow .who span{font-size:11px;color:#8a978f;display:block;}
+  .pchev{color:#b6c1ba;font-size:12px;flex-shrink:0;}
+  .pdetail{padding:4px 16px 16px;border-bottom:1px solid #f0f3f1;}
+  .ptl{display:flex;gap:0;flex-wrap:wrap;background:#f4f7f5;border:1px solid var(--line);border-radius:8px;padding:10px 14px;margin:10px 0 14px;font-size:11px;color:var(--sub);}
+  .ptl div{margin-right:26px;}
+  .ptl b{display:block;font-size:11.5px;color:var(--ink);font-weight:600;}
+  .ptl .miss b{color:#8a978f;font-weight:500;}
+  .psec{border:1px solid var(--line);border-radius:8px;margin-bottom:10px;overflow:hidden;}
+  .psec .psh{display:flex;justify-content:space-between;align-items:center;background:#f8faf9;padding:8px 14px;border-bottom:1px solid #f0f3f1;cursor:pointer;gap:10px;}
+  .psec .psh b{font-size:10px;letter-spacing:.07em;color:#48705f;}
+  .psec .psh span{font-size:10.5px;color:#8a978f;text-align:right;}
+  .psec .psh.done{background:var(--ok-bg);border-bottom:none;}
+  .psec .psh.done b, .psec .psh.done span{color:var(--ok);}
+  .psec .psh.pend{background:var(--bad-bg);border-bottom:none;cursor:default;}
+  .psec .psh.pend b, .psec .psh.pend span{color:var(--bad);}
+  .psbody{display:none;}
+  .psec.open .psbody{display:block;}
+  .pf{padding:8px 14px;border-bottom:1px solid #f4f7f5;}
+  .pf:last-child{border-bottom:none;}
+  .pf b{display:block;font-size:9.5px;letter-spacing:.06em;color:#8a978f;margin-bottom:2px;}
+  .pf p{font-size:12px;line-height:1.6;color:#33413a;margin:0;padding:0;white-space:pre-wrap;}
+  .pdims{display:flex;gap:14px;flex-wrap:wrap;padding:10px 14px;border-bottom:1px solid #f4f7f5;font-size:11px;color:var(--sub);}
+  .pdims span b{color:var(--ink);font-weight:700;}
+  .pkv{display:flex;gap:18px;padding:10px 14px;font-size:11.5px;color:#33413a;flex-wrap:wrap;}
+  .pkv b{display:block;font-size:9.5px;color:#8a978f;letter-spacing:.05em;}
   .bar-wrap{background:#eef0f4;border-radius:20px;height:8px;width:100%;overflow:hidden;}
   .bar-fill{background:var(--brand);height:100%;border-radius:20px;}
   .btn{display:inline-flex;align-items:center;gap:6px;background:var(--brand);color:#fff;border:none;padding:8px 15px;border-radius:8px;font-size:13.5px;font-weight:600;cursor:pointer;}
@@ -676,6 +710,8 @@ let STATE = {
   mreportsShowQuality: false,
   cwfExpandedId: null,
   deptReportExpandedId: null,
+  myTeamExpandedId: null,
+  myTeamOpenSections: {},
 };
 
 function currentPerson(){ return DB.people.find(p=>p.id===STATE.viewAs); }
@@ -716,6 +752,26 @@ function upwardCountFor(managerId, cycleId){ const d = DB.upwardCounts.find(c=>c
 function peerVisible(targetId, cycleId){ return peerCountFor(targetId, cycleId) >= ANONYMITY_MIN; }
 function upwardVisible(managerId, cycleId){ return upwardCountFor(managerId, cycleId) >= ANONYMITY_MIN; }
 function upwardSummaryFor(managerId, cycleId){ return DB.upwardSummaries.find(s=>s.id===managerId+'_'+cycleId); }
+
+function upwardAverageFor(personId, cycleId){
+  const s = upwardSummaryFor(personId, cycleId);
+  if(!s || !s.published || !s.avgRatings) return null;
+  const vals = Object.values(s.avgRatings).filter(v=>v!==null && v!==undefined && !isNaN(v));
+  return vals.length ? avg(vals) : null;
+}
+
+// Unified scoring model: a person with direct reports is scored as the average of their
+// manager's review and their team's upward average (both stay visible in their record). A
+// person without reports is scored by their manager's review alone.
+function scoreFor(person, cycle){
+  const { rev: mgrRev } = currentManagerReviewFor(person, cycle.id);
+  const mgrDone = !!(mgrRev && mgrRev.status==='submitted');
+  const mgrScore = mgrDone ? ratingAvgOfReview(mgrRev) : null;
+  if(!hasReports(person.id)) return mgrScore;
+  const upScore = upwardAverageFor(person.id, cycle.id);
+  const parts = [mgrScore, upScore].filter(v=>v!==null && v!==undefined);
+  return parts.length ? avg(parts) : null;
+}
 function peerSummaryFor(targetId, cycleId){ return DB.peerSummaries.find(s=>s.id===targetId+'_'+cycleId); }
 function oneOnOneFor(employeeId, cycleId){ return DB.oneOnOnes.find(o=>o.id===employeeId+'_'+cycleId); }
 function calendarSyncFor(personId, cycleId){ return DB.calendarSync.find(c=>c.id===personId+'_'+cycleId); }
@@ -1085,13 +1141,9 @@ function render(){
   const managerItems = [];
   const adminItems = [];
   if(hasReports(person.id)){
-    managerItems.push({id:'myteam', icon:'users', label:'Team Home'});
-    // Department Report only ever goes to the auto-detected head of one of the 5 canonical
-    // groups (matches "Publish to manager", which only ever emails that same head) - a
-    // sub-team manager with direct reports still gets Team Home, not the whole department.
-    if(DEPT_SUMMARY_GROUPS.some(g=>(deptHeadFor(g)||{}).id===person.id)){
-      managerItems.push({id:'deptSummaries', icon:'book', label:'Department Report'});
-    }
+    // My Team merges the old Team Home and Department Report into one page: department heads
+    // get their whole department plus a head card, other managers get their direct reports.
+    managerItems.push({id:'myteam', icon:'users', label:'My Team'});
   }
   if(role==='hr'){
     adminItems.push(
@@ -2454,7 +2506,10 @@ function deptReportEntryFor(person, cycle, report){
   const { rev: mgrRev, stale: mgrStale, staleRev: mgrStaleRev } = currentManagerReviewFor(person, cycle.id);
   const selfDone = !!(selfRev && selfRev.status==='submitted');
   const mgrDone = !!(mgrRev && mgrRev.status==='submitted');
-  const score = mgrDone ? ratingAvgOfReview(mgrRev) : null;
+  const score = scoreFor(person, cycle);
+  const upwardScore = hasReports(person.id) ? upwardAverageFor(person.id, cycle.id) : null;
+  const upwardSummary = hasReports(person.id) ? upwardSummaryFor(person.id, cycle.id) : null;
+  const reportPublished = report.status==='published';
   const admin = (report.people && report.people[person.id]) || {};
   const status = admin.status || 'no';
   const recommendation = admin.recommendation || '';
@@ -2477,7 +2532,7 @@ function deptReportEntryFor(person, cycle, report){
   else oneOnOneOutcome = 'Completed ' + fmtDate((o1.completedAt||'').slice(0,10)) + '.';
   const notable = mgrStale || status!=='no' || (score!==null && score<3.5) || !!recommendation.trim();
   const reviewerOfRecord = person.managerId ? (getPerson(person.managerId)?getPerson(person.managerId).name:'—') : '—';
-  return { person, reviewerOfRecord, selfDone, mgrDone, score, status, recommendation, inTheirWords, managersAssessment, oneOnOneOutcome, notable, mgrStale, archivedAssessment, archivedReviewer };
+  return { person, reviewerOfRecord, selfDone, mgrDone, score, status, recommendation, inTheirWords, managersAssessment, oneOnOneOutcome, notable, mgrStale, archivedAssessment, archivedReviewer, upwardScore, upwardSummary, reportPublished };
 }
 function deptReportEntries(dept, cycle, report){
   const head = deptHeadFor(dept);
@@ -2610,9 +2665,9 @@ function viewDeptReport(dept, cycle, person, isAdmin){
   const entries = deptReportEntries(dept, cycle, report);
   const head = deptHeadFor(dept);
   const headMgrRev = head ? findReview('manager', cycle.id, x=>x.employeeId===head.id && x.status==='submitted') : null;
-  const managerScore = headMgrRev ? ratingAvgOfReview(headMgrRev) : null;
-  const scored = entries.filter(e=>e.score!==null);
-  const teamScore = scored.length ? avg(scored.map(e=>e.score)) : null;
+  const managerScore = head ? scoreFor(head, cycle) : null;
+  const deptScorePool = [managerScore, ...entries.map(e=>e.score)].filter(v=>v!==null);
+  const teamScore = deptScorePool.length ? avg(deptScorePool) : null;
   const totalForCompletion = entries.length + (head?1:0);
   const doneForCompletion = entries.filter(e=>e.mgrDone).length + (headMgrRev?1:0);
   const completionPct = totalForCompletion ? Math.round(doneForCompletion/totalForCompletion*100) : 0;
@@ -3008,122 +3063,182 @@ function bindRatingRow(container, field, onChange){
 }
 
 /* ============================= MANAGER: MY TEAM ============================= */
-function viewMyTeam(cycle, person){
-  const reports = directReports(person.id);
+function myTeamRatingAvg(summary){
+  if(!summary || !summary.avgRatings) return null;
+  const vals = Object.values(summary.avgRatings).filter(v=>v!==null && v!==undefined && !isNaN(v));
+  return vals.length ? avg(vals) : null;
+}
 
-  // Reviews written: same predicate used in viewTodos' "Write manager reviews" row.
-  const doneReviews = reports.filter(r=>findReview('manager', cycle.id, x=>x.employeeId===r.id && x.status==='submitted')).length;
+function myTeamSectionHtml(key, label, state, meta, bodyHtml){
+  if(state==='pending'){
+    return `<div class="psec"><div class="psh pend"><b>${escapeHtml(label)}</b><span>${escapeHtml(meta)}</span></div></div>`;
+  }
+  const open = !!STATE.myTeamOpenSections[key];
+  return `<div class="psec${open?' open':''}">
+    <div class="psh done" data-toggle-myteam-section="${key}"><b>${escapeHtml(label)}</b><span>${escapeHtml(meta)}${open?' · collapse':' · expand ▾'}</span></div>
+    <div class="psbody">${bodyHtml}</div>
+  </div>`;
+}
 
-  // 1:1s booked: booked means an oneonones record exists and isn't still 'pending', same
-  // predicate viewTodos uses to compute pendingOneOnOnes (just inverted).
-  const oneOnOnesBooked = reports.filter(r=>{
-    const o1 = oneOnOneFor(r.id, cycle.id);
-    return o1 && o1.status!=='pending';
-  }).length;
+function myTeamTimelineHtml(e, cycle){
+  const p = e.person;
+  const selfRev = e.selfDone ? findReview('self', cycle.id, x=>x.employeeId===p.id) : null;
+  const mgrRev = (e.mgrDone && !e.mgrStale) ? findReview('manager', cycle.id, x=>x.employeeId===p.id && x.status==='submitted') : null;
+  const o1 = oneOnOneFor(p.id, cycle.id);
+  const items = [];
+  items.push(selfRev ? {label:'Self-review', val:fmtDateTime(selfRev.submittedAt), miss:false} : {label:'Self-review', val:'not yet', miss:true});
+  items.push(mgrRev ? {label:'Manager review', val:fmtDateTime(mgrRev.submittedAt), miss:false} : {label:'Manager review', val: e.mgrStale?'re-review pending':'not yet', miss:true});
+  if(!o1 || o1.status==='pending') items.push({label:'1:1', val:'not yet', miss:true});
+  else if(o1.status==='scheduled') items.push({label:'1:1', val:'scheduled '+fmtDateTime(o1.scheduledAt), miss:true});
+  else items.push({label:'1:1 held', val:fmtDateTime(o1.completedAt), miss:false});
+  return `<div class="ptl">${items.map(it=>`<div class="${it.miss?'miss':''}"><span>${escapeHtml(it.label)}</span><b>${escapeHtml(it.val)}</b></div>`).join('')}</div>`;
+}
 
-  // Overdue follow-ups: checkpoint date in the past and not yet resolved. Same followUps
-  // collection viewTodos' "Follow-ups due" bucket reads, scoped to this manager.
-  const today = new Date().toISOString().slice(0,10);
-  const myFollowUps = (DB.followUps||[]).filter(f=>f.managerId===person.id)
-    .sort((a,b)=>(a.checkpointDate||'').localeCompare(b.checkpointDate||''));
-  const overdueFollowUps = myFollowUps.filter(f=>f.status!=='done' && f.checkpointDate && f.checkpointDate<today).length;
+function myTeamPersonSectionsHtml(e, cycle){
+  const p = e.person;
+  const parts = [];
 
-  // Manager's own self-review submission date: same lookup viewTodos uses for "Submit your self-review".
-  const mySelfRev = findReview('self', cycle.id, x=>x.employeeId===person.id);
-  const mySelfSubmitted = !!(mySelfRev && mySelfRev.status==='submitted');
-  const selfDateDisplay = mySelfSubmitted ? fmtDate(mySelfRev.submittedAt.slice(0,10)) : 'Not submitted';
+  if(e.selfDone){
+    const selfRev = findReview('self', cycle.id, x=>x.employeeId===p.id);
+    const body = SELF_FIELDS.map(f=>selfRev.answers[f.key] ? `<div class="pf"><b>${escapeHtml(f.label.toUpperCase())}</b><p>${escapeHtml(selfRev.answers[f.key])}</p></div>` : '').join('') || '<div class="pf"><p>No answers on file.</p></div>';
+    parts.push(myTeamSectionHtml('self_'+p.id, 'Self-review · '+p.name.split(' ')[0], 'done', 'submitted '+fmtDate(selfRev.submittedAt.slice(0,10))+' · expand', body));
+  } else {
+    parts.push(myTeamSectionHtml('self_'+p.id, 'Self-review · '+p.name.split(' ')[0], 'pending', 'not submitted yet', ''));
+  }
 
-  // Review queue: one row per report, collapsed to a single derived status + single next step,
-  // reusing the same submitted/self-review/1:1 predicates as viewTodos and viewSelfForm rather
-  // than the old per-pipeline-stage columns (self-review / manager review / feedback / upward /
-  // 1:1, each with its own pill).
-  const queueRows = reports.map(r=>{
-    const selfRev = findReview('self', cycle.id, x=>x.employeeId===r.id);
-    const selfSubmitted = !!(selfRev && selfRev.status==='submitted');
-    const mgrRev = findReview('manager', cycle.id, x=>x.employeeId===r.id && x.status==='submitted');
-    const mgrDone = !!mgrRev;
-    const o1 = oneOnOneFor(r.id, cycle.id);
-    let step, pillCls, pillLabel, actionLabel, actionAttr, blocked;
-    if(!mgrDone){
-      step = 'Write your review · ' + (selfSubmitted ? 'self-review ready to reference' : 'self-review still pending');
-      pillCls = 'bad'; pillLabel = 'Pending';
-      actionLabel = 'Write review'; actionAttr = `data-fill-manager="${r.id}"`;
-      blocked = true;
-    } else if(!o1 || o1.status==='pending'){
-      step = 'Schedule the 1:1 debrief · review submitted';
-      pillCls = 'warn'; pillLabel = 'Action needed';
-      actionLabel = 'Schedule'; actionAttr = `data-schedule-oneonone="${r.id}"`;
-      blocked = true;
-    } else if(o1.status==='scheduled'){
-      step = 'Confirm the 1:1 happened · scheduled ' + fmtDateTime(o1.scheduledAt);
-      pillCls = 'warn'; pillLabel = 'Scheduled';
-      actionLabel = 'Mark done'; actionAttr = `data-complete-oneonone="${o1.id}"`;
-      blocked = true;
+  if(e.mgrStale){
+    parts.push(myTeamSectionHtml('mgr_'+p.id, 'Manager review', 'pending', 're-review pending after reassignment', ''));
+  } else if(e.mgrDone){
+    const mgrRev = findReview('manager', cycle.id, x=>x.employeeId===p.id && x.status==='submitted');
+    const dims = MANAGER_RATINGS.map(f=>`<span>${escapeHtml(f.label)} <b>${mgrRev.ratings&&mgrRev.ratings[f.key]!==undefined?mgrRev.ratings[f.key]:'—'}</b></span>`).join('');
+    const body = `<div class="pdims">${dims}</div>` + MANAGER_FIELDS.map(f=>mgrRev.answers[f.key] ? `<div class="pf"><b>${escapeHtml(f.label.toUpperCase())}</b><p>${escapeHtml(mgrRev.answers[f.key])}</p></div>` : '').join('');
+    parts.push(myTeamSectionHtml('mgr_'+p.id, 'Manager review · '+escapeHtml(e.reviewerOfRecord), 'done', 'submitted '+fmtDate(mgrRev.submittedAt.slice(0,10))+' · expand', body));
+  } else {
+    parts.push(myTeamSectionHtml('mgr_'+p.id, 'Manager review', 'pending', 'not submitted yet', ''));
+  }
+
+  if(hasReports(p.id)){
+    const count = upwardCountFor(p.id, cycle.id);
+    const summary = e.upwardSummary;
+    if(summary && summary.published){
+      const body = `<div class="pdims"><span>Average <b>${e.upwardScore!==null?e.upwardScore.toFixed(1):'—'}</b></span><span>Responses <b>${summary.responseCount||0}</b></span></div>
+        <div class="pf"><b>THEMES</b><p>${escapeHtml(summary.themes)||'No themes recorded.'}</p></div>`;
+      parts.push(myTeamSectionHtml('up_'+p.id, 'Team feedback · upward', 'done', (summary.responseCount||0)+' responses · expand', body));
     } else {
-      step = 'All caught up · 1:1 completed ' + fmtDate((o1.completedAt||'').slice(0,10));
-      pillCls = 'ok'; pillLabel = 'Done';
-      actionLabel = 'View review'; actionAttr = `data-fill-manager="${r.id}"`;
-      blocked = false;
+      parts.push(myTeamSectionHtml('up_'+p.id, 'Team feedback · upward', 'pending', count+' collected, not published yet', ''));
     }
-    return {person:r, step, pillCls, pillLabel, actionLabel, actionAttr, blocked};
-  }).sort((a,b)=>{
-    if(a.blocked!==b.blocked) return a.blocked ? -1 : 1;
-    return a.person.name.localeCompare(b.person.name);
+  }
+
+  const peerSummary = peerSummaryFor(p.id, cycle.id);
+  if(peerSummary && peerSummary.published){
+    const avgV = myTeamRatingAvg(peerSummary);
+    const body = `<div class="pf"><b>HR PUBLISHED SUMMARY</b><p>${escapeHtml(peerSummary.themes)||'No summary text.'}</p></div>`;
+    parts.push(myTeamSectionHtml('cwf_'+p.id, 'Company wide feedback', 'done', (peerSummary.responseCount||0)+' pieces'+(avgV!==null?' · avg '+avgV.toFixed(1):'')+' · expand', body));
+  } else {
+    parts.push(myTeamSectionHtml('cwf_'+p.id, 'Company wide feedback', 'pending', 'nothing published yet', ''));
+  }
+
+  if(e.reportPublished){
+    const statusLabel = {no:'No action', monitor:'Monitor', yes:'PIP'}[e.status] || 'No action';
+    const body = `<div class="pf"><b>RECOMMENDATION</b><p>${escapeHtml(e.recommendation)||'No concerns flagged this cycle.'}</p></div><div class="pkv"><div><b>STATUS</b>${escapeHtml(statusLabel)}</div></div>`;
+    parts.push(myTeamSectionHtml('hr_'+p.id, 'HR summary & recommendation', 'done', 'published · expand', body));
+  } else {
+    parts.push(myTeamSectionHtml('hr_'+p.id, 'HR summary & recommendation', 'pending', 'not published yet', ''));
+  }
+
+  return parts.join('');
+}
+
+function myTeamPersonRowHtml(e, cycle){
+  const p = e.person;
+  const expanded = STATE.myTeamExpandedId===p.id;
+  const statusTag = e.status==='yes' ? '<span class="sevtag pip">PIP</span>' : (e.status==='monitor' ? '<span class="sevtag mon">MONITOR</span>' : '');
+  const pillHtml = statusTag ? '' : `<span class="stpill ${e.mgrDone?'ok':'warn'}">${e.mgrDone?'Complete':'In progress'}</span>`;
+  return `<div class="prow" data-toggle-myteam-person="${p.id}">
+    <div class="who"><b>${escapeHtml(p.name)}</b><span>${escapeHtml(p.title||'')}${e.mgrStale?' · reviewed by '+escapeHtml(e.reviewerOfRecord):''}</span></div>
+    ${statusTag || pillHtml}
+    ${scoreBadge(e.score)}
+    <span class="pchev">${expanded?'▲':'▼'}</span>
+  </div>
+  ${expanded ? `<div class="pdetail">${myTeamTimelineHtml(e, cycle)}${myTeamPersonSectionsHtml(e, cycle)}</div>` : ''}`;
+}
+
+// My Team replaces both Team Home and Department Report. Department heads see their whole
+// department (roster + a head card for themselves) with the same record component used for
+// everyone else; other managers with direct reports see just their own team. Scoring model:
+// a person with direct reports is scored as the average of their manager's review and their
+// team's upward average; a person without reports is scored by their manager's review alone.
+// Department average includes everyone in the department, head included.
+function viewMyTeam(cycle, person){
+  const headGroup = DEPT_SUMMARY_GROUPS.find(g=>(deptHeadFor(g)||{}).id===person.id);
+  const isHead = !!headGroup;
+  const report = isHead ? deptReportFor(headGroup) : null;
+
+  const members = isHead
+    ? summaryGroupMembers(headGroup).filter(p=>p.id!==person.id)
+    : directReports(person.id);
+
+  const entries = members.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(p=>{
+    const g = isHead ? headGroup : deptGroupFor(p.id);
+    const r = g ? deptReportFor(g) : {id:null, people:{}, status:'draft'};
+    return deptReportEntryFor(p, cycle, r);
   });
 
+  const headEntry = isHead ? deptReportEntryFor(person, cycle, report) : null;
+
+  const avgPool = (isHead ? [headEntry.score, ...entries.map(e=>e.score)] : entries.map(e=>e.score)).filter(v=>v!==null);
+  const teamAvg = avgPool.length ? avg(avgPool) : null;
+  const teamAvgCls = teamAvg===null ? '' : (teamAvg>=4.0 ? 'good' : (teamAvg<3.0 ? 'bad' : 'warn'));
+
+  const totalOwed = entries.length;
+  const doneOwed = entries.filter(e=>e.mgrDone).length;
+  const completionPct = totalOwed ? Math.round(doneOwed/totalOwed*100) : 100;
+  const today = new Date().toISOString().slice(0,10);
+  const overdue = totalOwed>0 && completionPct<100 && cycle.endDate && today>cycle.endDate;
+  const completionCls = overdue ? 'bad' : 'good';
+  const completionCaption = !cycle.endDate ? 'no deadline set' : (overdue ? (totalOwed-doneOwed)+' still pending, was due '+fmtDate(cycle.endDate) : 'on track for '+fmtDate(cycle.endDate));
+
+  const myFollowUps = (DB.followUps||[]).filter(f=>f.managerId===person.id).sort((a,b)=>(a.checkpointDate||'').localeCompare(b.checkpointDate||''));
+  const overdueFollowUps = myFollowUps.filter(f=>f.status!=='done' && f.checkpointDate && f.checkpointDate<today);
+  const flaggedEntries = (isHead ? [headEntry, ...entries] : entries).filter(e=>e.status==='monitor' || e.status==='yes');
+  const concernsCount = flaggedEntries.length + overdueFollowUps.length;
+  const concernCaption = flaggedEntries.length
+    ? (({monitor:'Monitor',yes:'PIP'}[flaggedEntries[0].status]) + ' · ' + flaggedEntries[0].person.name)
+    : (overdueFollowUps.length ? overdueFollowUps.length+' overdue follow-up'+(overdueFollowUps.length>1?'s':'') : 'none open');
+
+  const followUpRowsHtml = myFollowUps.map(f=>{
+    const who = getPerson(f.personId);
+    const isDone = f.status==='done';
+    const isOverdue = !isDone && f.checkpointDate && f.checkpointDate<today;
+    const actionLabel = isDone ? 'Done' : (isOverdue ? 'Log' : 'Schedule');
+    const actionAttr = isDone ? '' : `data-log-followup="${f.id}"`;
+    return `<div class="prow" style="cursor:default;">
+      <div class="who"><b>${escapeHtml(who?who.name:'—')}</b><span>${escapeHtml(f.commitment||'Check-in')} · ${fmtDate(f.checkpointDate)}</span></div>
+      <span class="actbtn" ${actionAttr}>${escapeHtml(actionLabel)}</span>
+    </div>`;
+  }).join('');
+
   return `
-  <div class="h1" style="font-family:var(--font-head);font-weight:600;font-size:22px;margin-bottom:14px;">Team home</div>
+  <div class="h1" style="font-family:var(--font-head);font-weight:600;font-size:22px;margin-bottom:2px;">${isHead?escapeHtml(headGroup):'My Team'}</div>
+  <div class="desc" style="margin-bottom:14px;">${escapeHtml(cycle.label)}</div>
 
-  <div class="grid grid-4">
-    <div class="stat"><div class="num">${doneReviews}/${reports.length}</div><div class="lbl">Reviews written</div></div>
-    <div class="stat"><div class="num">${oneOnOnesBooked}/${reports.length}</div><div class="lbl">1:1s booked</div></div>
-    <div class="stat ${overdueFollowUps>0?'warn':''}"><div class="num">${overdueFollowUps}</div><div class="lbl">Overdue follow-ups</div></div>
-    <div class="stat"><div class="num" style="font-size:16px;">${selfDateDisplay}</div><div class="lbl">Your self-review submitted</div></div>
+  <div class="grid grid-3">
+    <div class="stat ${teamAvgCls}"><div class="num">${teamAvg!==null?teamAvg.toFixed(1):'—'}</div><div class="lbl">Team average</div></div>
+    <div class="stat ${completionCls}"><div class="num">${completionPct}%</div><div class="lbl">Completion</div><div class="small muted" style="margin-top:2px;">${escapeHtml(completionCaption)}</div></div>
+    <div class="stat ${concernsCount>0?'bad':''}"><div class="num">${concernsCount}</div><div class="lbl">Concerns</div><div class="small muted" style="margin-top:2px;">${escapeHtml(concernCaption)}</div></div>
   </div>
 
-  <div class="card">
-    <h2>Review queue</h2>
-    <div class="desc">${escapeHtml(cycle.label)}. Blockers first, one next step per person.</div>
-    ${reports.length===0 ? '<div class="empty">No direct reports.</div>' : `
-    <table>
-      <thead><tr><th>Person</th><th>Next step</th><th>Status</th><th></th></tr></thead>
-      <tbody>
-        ${queueRows.map(q=>`<tr>
-          <td><div class="person-cell"><div class="avatar">${initials(q.person.name)}</div>${escapeHtml(q.person.name)}</div></td>
-          <td class="small">${escapeHtml(q.step)}</td>
-          <td><span class="stpill ${q.pillCls}">${q.pillLabel}</span></td>
-          <td><button class="actbtn" ${q.actionAttr}>${q.actionLabel}</button></td>
-        </tr>`).join('')}
-      </tbody>
-    </table>`}
+  ${isHead ? `<div class="panel"><h3 class="ph">DEPARTMENT HEAD</h3>${myTeamPersonRowHtml(headEntry, cycle)}</div>` : ''}
+
+  <div class="panel">
+    <h3 class="ph">MY TEAM<span class="hint">click a person to expand their full record</span></h3>
+    ${entries.length===0 ? '<div class="empty" style="padding:16px;">No direct reports.</div>' : entries.map(e=>myTeamPersonRowHtml(e, cycle)).join('')}
   </div>
 
-  <div id="managerFormHost"></div>
-
-  <div class="card">
-    <div class="row" style="justify-content:space-between;align-items:center;">
-      <div><h2>Follow-ups & commitments</h2><div class="desc">Year-round registry (PIP check-ins, monitor checkpoints, workload reviews) for your direct reports. Due items also surface in To-Dos.</div></div>
-      <button class="btn ghost sm" id="addFollowUpBtn">+ Add</button>
-    </div>
-    ${myFollowUps.length===0 ? '<div class="empty">No commitments logged yet. Use + Add to log one.</div>' : `
-    <table>
-      <thead><tr><th>Person</th><th>Commitment</th><th>Checkpoint date</th><th>Status</th><th></th></tr></thead>
-      <tbody>
-        ${myFollowUps.map(f=>{
-          const who = getPerson(f.personId);
-          const isDone = f.status==='done';
-          const isOverdue = !isDone && f.checkpointDate && f.checkpointDate<today;
-          const pill = isDone ? '<span class="stpill ok">Done</span>' : (isOverdue ? '<span class="stpill bad">Overdue</span>' : '<span class="stpill warn">Open</span>');
-          return `<tr>
-            <td><div class="person-cell"><div class="avatar">${initials(who?who.name:'—')}</div>${who?escapeHtml(who.name):'—'}</div></td>
-            <td class="small">${escapeHtml(f.commitment||'—')}</td>
-            <td class="small muted">${fmtDate(f.checkpointDate)}</td>
-            <td>${pill}</td>
-            <td>${isDone?'':`<button class="actbtn" data-log-followup="${f.id}">Log</button>`}</td>
-          </tr>`;
-        }).join('')}
-      </tbody>
-    </table>`}
+  <div class="panel">
+    <h3 class="ph">FOLLOW-UPS &amp; COMMITMENTS<span class="hint">year-round · due items surface in To-Dos</span></h3>
+    ${myFollowUps.length===0 ? '<div class="empty" style="padding:16px;">No commitments logged yet.</div>' : followUpRowsHtml}
+    <div style="padding:11px 16px;"><button class="btn ghost sm" id="addFollowUpBtn">+ Add</button></div>
   </div>`;
 }
 
@@ -3993,6 +4108,8 @@ function bindViewEvents(role, nav, cycle, person){
   document.querySelector('[data-toggle-mreports-quality]')?.addEventListener('click', ()=>{ STATE.mreportsShowQuality = !STATE.mreportsShowQuality; render(); });
   document.querySelectorAll('[data-toggle-cwf-person]').forEach(el=>el.addEventListener('click', ()=>{ const pid = el.dataset.toggleCwfPerson; STATE.cwfExpandedId = (STATE.cwfExpandedId===pid) ? null : pid; render(); }));
   document.querySelectorAll('[data-toggle-deptreport-person]').forEach(el=>el.addEventListener('click', ()=>{ const pid = el.dataset.toggleDeptreportPerson; STATE.deptReportExpandedId = (STATE.deptReportExpandedId===pid) ? null : pid; render(); }));
+  document.querySelectorAll('[data-toggle-myteam-person]').forEach(el=>el.addEventListener('click', ()=>{ const pid = el.dataset.toggleMyteamPerson; STATE.myTeamExpandedId = (STATE.myTeamExpandedId===pid) ? null : pid; if(STATE.myTeamExpandedId!==pid) STATE.myTeamOpenSections = {}; render(); }));
+  document.querySelectorAll('[data-toggle-myteam-section]').forEach(el=>el.addEventListener('click', (ev)=>{ ev.stopPropagation(); const key = el.dataset.toggleMyteamSection; STATE.myTeamOpenSections[key] = !STATE.myTeamOpenSections[key]; render(); }));
   document.querySelectorAll('textarea[data-mgr-recommendation]').forEach(el=>{
     wireAutosaveTextarea(el, async (value)=>{
       const meP = sessionPerson();
