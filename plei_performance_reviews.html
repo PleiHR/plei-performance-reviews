@@ -450,7 +450,7 @@ async function seedFirestoreFromOrgData(){
 /* In-memory mirror of Firestore, kept in sync via onSnapshot listeners below.
    The rest of the app reads/renders from this object exactly like the old localStorage version did. */
 let DB = {departments:[], people:[], directory:[], cycles:[], settings:{companyDomain:'plei.com'},
-  reviews:{self:[], manager:[], peer:[], upward:[]}, suggestions:[],
+  reviews:{self:[], manager:[], peer:[], upward:[]}, suggestions:[], suggestionAuthorship:[],
   peerCounts:[], peerAuthorship:[], peerSummaries:[],
   upwardCounts:[], upwardSummaries:[], upwardAuthorship:[], oneOnOnes:[], calendarSync:[], personFiles:[], deptSummaries:[],
   followUps:[], coffeeChats:[], managerReports:[]};
@@ -483,6 +483,7 @@ function startReviewListeners(email, isHR){
     reviewListenerUnsubs.push(fdb.collection('oneonones').onSnapshot(snap=>{ DB.oneOnOnes = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('calendarSync').onSnapshot(snap=>{ DB.calendarSync = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('suggestions').onSnapshot(snap=>{ DB.suggestions = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
+    reviewListenerUnsubs.push(fdb.collection('suggestion_authorship').onSnapshot(snap=>{ DB.suggestionAuthorship = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('personFiles').onSnapshot(snap=>{ DB.personFiles = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('deptSummaries').onSnapshot(snap=>{ DB.deptSummaries = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     // Manager Reports' recommendation field is internal-only (never shown to the manager, never
@@ -507,7 +508,10 @@ function startReviewListeners(email, isHR){
     // Raw upward review content never reaches non-HR clients — only HR-published summaries do.
     DB.reviews.upward = [];
     // Suggestions are HR-only — never loaded into non-HR clients, even for the person's own submission.
+    // Suggestion AUTHORSHIP (who wrote one, not what it says) is scoped to the person's own email,
+    // so the Kudos to-do can derive completion without exposing suggestion content.
     DB.suggestions = [];
+    reviewListenerUnsubs.push(fdb.collection('suggestion_authorship').where('authorEmail','==',email).onSnapshot(snap=>{ DB.suggestionAuthorship = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('upward_summaries').where('visibleToIds','array-contains',myId).where('published','==',true).onSnapshot(snap=>{ DB.upwardSummaries = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('peer_authorship').where('authorEmail','==',email).onSnapshot(snap=>{ DB.peerAuthorship = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('upward_authorship').where('authorEmail','==',email).onSnapshot(snap=>{ DB.upwardAuthorship = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
@@ -562,7 +566,46 @@ function onPeopleSynced(){
   if(mode !== lastReviewListenerMode){
     lastReviewListenerMode = mode;
     startReviewListeners(CURRENT_USER.email, isHR);
+    if(isHR) ensureCoffeeChatPairingsForMonth();
   }
+}
+
+function shuffleArray(arr){ for(let i=arr.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [arr[i],arr[j]]=[arr[j],arr[i]]; } return arr; }
+
+// Coffee chat: monthly, cross-department, no-repeat pairing. There is no backend cron in this
+// architecture (static SPA + Firestore only), so generation is triggered lazily by an HR session
+// loading the app — guarded by checking whether pairings already exist for the current month
+// before writing anything, so calling this more than once in a month is always a no-op.
+async function ensureCoffeeChatPairingsForMonth(){
+  try{
+    const monthKey = new Date().toISOString().slice(0,7);
+    const existing = await fdb.collection('coffeeChats').where('month','==',monthKey).limit(1).get();
+    if(!existing.empty) return;
+    const historySnap = await fdb.collection('coffeeChats').get();
+    const priorPairs = new Set();
+    historySnap.docs.forEach(d=>{ const c=d.data(); if(c.personA && c.personB) priorPairs.add([c.personA,c.personB].sort().join('|')); });
+    const roster = shuffleArray(DB.people.filter(p=>!p.deactivated && p.email).slice());
+    if(roster.length < 2) return;
+    const used = new Set();
+    const pairs = [];
+    for(let i=0;i<roster.length;i++){
+      const a = roster[i]; if(used.has(a.id)) continue;
+      let partner = null;
+      for(let j=i+1;j<roster.length;j++){
+        const b = roster[j]; if(used.has(b.id)) continue;
+        const key = [a.id,b.id].sort().join('|');
+        if(!priorPairs.has(key)){ partner = b; break; }
+      }
+      if(partner){ used.add(a.id); used.add(partner.id); pairs.push([a,partner]); }
+    }
+    if(!pairs.length) return;
+    const batch = fdb.batch();
+    pairs.forEach(([a,b])=>{
+      const ref = fdb.collection('coffeeChats').doc(uid('cc'));
+      batch.set(ref, {month:monthKey, personA:a.id, personB:b.id, personAEmail:a.email, personBEmail:b.email, calendarEventId:null, createdAt:new Date().toISOString()});
+    });
+    await batch.commit();
+  } catch(e){ console.error('Coffee chat pairing generation failed', e); }
 }
 
 function startBaseListeners(onFirstLoad){
@@ -896,6 +939,19 @@ async function autoSyncCycleCalendarsOnLogin(){
 
 
 function findReview(type, cycleId, matchFn){ return DB.reviews[type].find(r=>r.cycleId===cycleId && matchFn(r)); }
+
+// Reassignment guard: a submitted manager review only counts as the CURRENT review if it was
+// written by the person's current manager. If their manager changed since it was submitted, the
+// old review is stale — it must never surface as "the" score or text, only as an HR-only archive.
+function currentManagerReviewFor(person, cycleId){
+  const rev = findReview('manager', cycleId, x=>x.employeeId===person.id);
+  if(!rev || rev.status!=='submitted') return {rev, stale:false, staleRev:null};
+  const curMgr = person.managerId ? getPerson(person.managerId) : null;
+  if(!curMgr) return {rev, stale:false, staleRev:null};
+  const revMgrId = rev.managerId || null;
+  const isStale = revMgrId ? revMgrId !== curMgr.id : (rev.managerEmail ? rev.managerEmail !== curMgr.email : false);
+  return isStale ? {rev:null, stale:true, staleRev:rev} : {rev, stale:false, staleRev:null};
+}
 
 function escapeHtml(str){
   if(str===null || str===undefined) return '';
@@ -2073,10 +2129,13 @@ function viewTodos(cycle, person){
   }
   buckets.push({header: 'Coffee chat', hint: 'monthly', rowsHtml: coffeeRowHtml});
 
-  // Kudos: optional, no pills, no derived completion — just entry points.
+  // Kudos: completion is derived from this person's own authorship records for the cycle —
+  // never manually checked off.
+  const gaveFeedback = (DB.peerAuthorship||[]).some(r=>r.cycleId===cycle.id && r.authorEmail===person.email);
+  const gaveSuggestion = (DB.suggestionAuthorship||[]).some(r=>r.cycleId===cycle.id && r.authorEmail===person.email);
   const kudosRows = [
-    todoRowHtml({optional:true, label:'Give anonymous feedback about a colleague', actionLabel:'Start', actionAttr:'data-nav="peerform"'}),
-    todoRowHtml({optional:true, label:'Drop a suggestion in the box', actionLabel:'Start', actionAttr:'data-nav="suggestform"'}),
+    todoRowHtml({done:gaveFeedback, label:'Give anonymous feedback about a colleague', actionLabel: gaveFeedback?null:'Start', actionAttr:'data-nav="peerform"'}),
+    todoRowHtml({done:gaveSuggestion, label:'Drop a suggestion in the box', actionLabel: gaveSuggestion?null:'Start', actionAttr:'data-nav="suggestform"'}),
   ].join('');
   buckets.push({header:'Kudos', hint:'', rowsHtml: kudosRows});
 
@@ -2392,7 +2451,7 @@ function deptReportFor(dept){
 // an actual submitted review.
 function deptReportEntryFor(person, cycle, report){
   const selfRev = findReview('self', cycle.id, x=>x.employeeId===person.id);
-  const mgrRev = findReview('manager', cycle.id, x=>x.employeeId===person.id);
+  const { rev: mgrRev, stale: mgrStale, staleRev: mgrStaleRev } = currentManagerReviewFor(person, cycle.id);
   const selfDone = !!(selfRev && selfRev.status==='submitted');
   const mgrDone = !!(mgrRev && mgrRev.status==='submitted');
   const score = mgrDone ? ratingAvgOfReview(mgrRev) : null;
@@ -2404,19 +2463,21 @@ function deptReportEntryFor(person, cycle, report){
     : '';
   const managersAssessment = mgrDone
     ? [mgrRev.answers.keyWins, mgrRev.answers.growthOpportunities, mgrRev.answers.managerNotes].filter(Boolean).join('\n\n')
+    : (mgrStale ? 'Re-review pending after reassignment.' : '');
+  const archivedAssessment = mgrStale
+    ? [mgrStaleRev.answers.keyWins, mgrStaleRev.answers.growthOpportunities, mgrStaleRev.answers.managerNotes].filter(Boolean).join('\n\n')
     : '';
+  const archivedReviewer = (mgrStale && mgrStaleRev.managerId && getPerson(mgrStaleRev.managerId)) ? getPerson(mgrStaleRev.managerId).name : 'the previous manager';
   const o1 = oneOnOneFor(person.id, cycle.id);
   let oneOnOneOutcome;
-  if(!mgrDone) oneOnOneOutcome = 'Manager review not submitted yet.';
+  if(mgrStale) oneOnOneOutcome = 'Re-review pending after reassignment.';
+  else if(!mgrDone) oneOnOneOutcome = 'Manager review not submitted yet.';
   else if(!o1 || o1.status==='pending') oneOnOneOutcome = 'Not scheduled yet.';
   else if(o1.status==='scheduled') oneOnOneOutcome = 'Scheduled for ' + fmtDateTime(o1.scheduledAt) + '.';
   else oneOnOneOutcome = 'Completed ' + fmtDate((o1.completedAt||'').slice(0,10)) + '.';
-  // "Notable" (gets a full card instead of the one-line card) — an admin-set status, a low score,
-  // or an already-drafted recommendation. Status is never auto-assigned from the score; a low
-  // score only makes the card notable enough to review, same as the Dashboard's concern count.
-  const notable = status!=='no' || (score!==null && score<3.5) || !!recommendation.trim();
+  const notable = mgrStale || status!=='no' || (score!==null && score<3.5) || !!recommendation.trim();
   const reviewerOfRecord = person.managerId ? (getPerson(person.managerId)?getPerson(person.managerId).name:'—') : '—';
-  return { person, reviewerOfRecord, selfDone, mgrDone, score, status, recommendation, inTheirWords, managersAssessment, oneOnOneOutcome, notable };
+  return { person, reviewerOfRecord, selfDone, mgrDone, score, status, recommendation, inTheirWords, managersAssessment, oneOnOneOutcome, notable, mgrStale, archivedAssessment, archivedReviewer };
 }
 function deptReportEntries(dept, cycle, report){
   const head = deptHeadFor(dept);
@@ -2470,6 +2531,7 @@ function deptReportPersonCardHtml(e, isAdmin, dept){
     <div class="divider"></div>
     <div class="block"><b>In their words</b><p>${escapeHtml(e.inTheirWords)||'No self-review submitted yet.'}</p></div>
     <div class="block"><b>Manager's assessment</b><p>${escapeHtml(e.managersAssessment)||'Manager review not submitted yet.'}</p></div>
+    ${(isAdmin && e.mgrStale) ? `<div class="block"><b>Archived (HR only) — reviewed by ${escapeHtml(e.archivedReviewer)} before reassignment</b><p>${escapeHtml(e.archivedAssessment)||'No archived text.'}</p></div>` : ''}
     <div class="block"><b>1:1 outcome</b><p>${escapeHtml(e.oneOnOneOutcome)}</p></div>
     ${isAdmin ? `
       <div class="field" style="margin-bottom:10px;max-width:220px;"><label>Status</label>
@@ -4445,8 +4507,14 @@ function bindSuggestFormEvents(person){
     const text = textEl.value.trim();
     if(!text){ alert('Please write your suggestion.'); return; }
     const anon = anonEl.checked;
-    await fdb.collection('suggestions').doc(uid('sg')).set({cycleId:STATE.activeCycleId, anonymous:anon, authorName:anon?'':person.name,
+    const suggId = uid('sg');
+    await fdb.collection('suggestions').doc(suggId).set({cycleId:STATE.activeCycleId, anonymous:anon, authorName:anon?'':person.name,
       category:catEl.value, text, createdAt:new Date().toISOString().slice(0,10)});
+    // Tracked separately from the (possibly anonymous) suggestion itself — only used to derive
+    // this person's own Kudos to-do completion, never exposed to anyone else.
+    await fdb.collection('suggestion_authorship').doc(suggId).set({
+      suggestionId: suggId, authorEmail: person.email, cycleId: STATE.activeCycleId, createdAt: new Date().toISOString()
+    });
     clearLocalDraft(dKey);
     toast('Suggestion submitted'); render();
   });
