@@ -48,6 +48,7 @@
   select, input[type=text], input[type=email], input[type=date], textarea{
     font-family:inherit;font-size:13.5px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);
   }
+  input:disabled, select:disabled{opacity:.55;cursor:not-allowed;background:#f4f4f4;}
   textarea{width:100%;resize:vertical;min-height:70px;line-height:1.4;}
   .content{padding:26px;flex:1;overflow-x:hidden;}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:20px 22px;margin-bottom:18px;}
@@ -3554,26 +3555,22 @@ function viewPeerForm(cycle, person){
   const explainer = `<div class="hrw-note"><b>${icon('shield',14)} How this works:</b> Company wide feedback is anonymous and completely optional — nobody is assigned to review you, and you don't need to be asked to give feedback. Use it to share something positive about a colleague, or to flag a concern or a negative aspect you think needs attention. Pick a department, then the person, then leave your feedback. Your feedback goes to HR only — the person and their manager never see raw feedback or who wrote it, only a summary HR shares once enough responses come in.</div>`;
 
   let body;
-  if(!dept){
+  if(!targetId){
+    const people = dept ? DB.people.filter(p=>p.department===dept && p.id!==person.id && (!p.deactivated || p.visibleInFeedback)).sort((a,b)=>a.name.localeCompare(b.name)) : [];
+    const alreadyIds = new Set(mine.map(r=>r.targetId));
+    const selectable = people.filter(p=>!alreadyIds.has(p.id));
+    const alreadyCount = people.length - selectable.length;
     body = `<div class="field">
-      <label>Choose a department</label>
-      <div class="pill-select">
-        ${depts.map(d=>`<div class="pill" data-cw-dept="${d}">${d}</div>`).join('')}
-      </div>
-    </div>`;
-  } else if(!targetId){
-    const people = DB.people.filter(p=>p.department===dept && p.id!==person.id && (!p.deactivated || p.visibleInFeedback));
-    body = `<div class="row" style="margin-bottom:10px;"><span class="tag">${dept}</span><button class="btn ghost sm" data-cw-back-dept="1">← Change department</button></div>
+      <label>Department</label>
+      <input type="text" list="cwDeptOptions" id="cwDeptInput" placeholder="Type or choose a department..." value="${dept?escapeHtml(dept):''}" autocomplete="off">
+      <datalist id="cwDeptOptions">${depts.map(d=>`<option value="${escapeHtml(d)}">`).join('')}</datalist>
+    </div>
     <div class="field">
-      <label>Who would you like to give feedback to?</label>
-      <div class="pill-select">
-        ${people.length ? people.map(p=>{
-          const already = mine.find(r=>r.targetId===p.id);
-          return already
-            ? `<div class="pill" style="opacity:.5;cursor:default;">${p.name} · already submitted</div>`
-            : `<div class="pill" data-cw-target="${p.id}">${p.name}</div>`;
-        }).join('') : '<div class="empty">No one else in this department.</div>'}
-      </div>
+      <label>Person</label>
+      <input type="text" list="cwPersonOptions" id="cwPersonInput" placeholder="${dept?'Type or choose a person...':'Choose a department first'}" autocomplete="off" ${dept?'':'disabled'}>
+      <datalist id="cwPersonOptions">${selectable.map(p=>`<option value="${escapeHtml(p.name)}">`).join('')}</datalist>
+      ${dept && !people.length ? '<div class="small muted" style="margin-top:6px;">No one else in this department.</div>' : ''}
+      ${dept && alreadyCount>0 ? `<div class="small muted" style="margin-top:6px;">You\'ve already given feedback to ${alreadyCount} ${alreadyCount===1?'person':'people'} in this department this cycle.</div>` : ''}
     </div>`;
   } else {
     const target = getPerson(targetId);
@@ -4540,14 +4537,30 @@ function bindSelfFormEvents(cycle, person){
 }
 
 function bindPeerFormEvents(cycle, person){
-  document.querySelectorAll('[data-cw-dept]').forEach(el=>el.addEventListener('click', ()=>{
-    STATE.cwDept = el.dataset.cwDept; STATE.cwTarget = null; render();
-  }));
-  const backDept = document.querySelector('[data-cw-back-dept]');
-  if(backDept) backDept.addEventListener('click', ()=>{ STATE.cwDept = null; STATE.cwTarget = null; render(); });
-  document.querySelectorAll('[data-cw-target]').forEach(el=>el.addEventListener('click', ()=>{
-    STATE.cwTarget = el.dataset.cwTarget; render();
-  }));
+  const mine = DB.peerAuthorship.filter(r=>r.cycleId===cycle.id && r.authorEmail===person.email);
+  const depts = Array.from(new Set(DB.people.filter(p=>!p.deactivated || p.visibleInFeedback).map(p=>p.department))).sort();
+  const deptInput = document.getElementById('cwDeptInput');
+  if(deptInput){
+    deptInput.addEventListener('change', ()=>{
+      const val = deptInput.value.trim();
+      if(!val){ STATE.cwDept = null; STATE.cwTarget = null; render(); return; }
+      const match = depts.find(d=>d.toLowerCase()===val.toLowerCase());
+      if(match && match!==STATE.cwDept){ STATE.cwDept = match; STATE.cwTarget = null; render(); }
+    });
+  }
+  const personInput = document.getElementById('cwPersonInput');
+  if(personInput){
+    personInput.addEventListener('change', ()=>{
+      const val = personInput.value.trim();
+      if(!val) return;
+      const dept = STATE.cwDept;
+      if(!dept) return;
+      const alreadyIds = new Set(mine.map(r=>r.targetId));
+      const candidates = DB.people.filter(p=>p.department===dept && p.id!==person.id && (!p.deactivated || p.visibleInFeedback) && !alreadyIds.has(p.id));
+      const match = candidates.find(p=>p.name.toLowerCase()===val.toLowerCase());
+      if(match){ STATE.cwTarget = match.id; render(); }
+    });
+  }
   const backTarget = document.querySelector('[data-cw-back-target]');
   if(backTarget) backTarget.addEventListener('click', ()=>{ STATE.cwTarget = null; render(); });
 
