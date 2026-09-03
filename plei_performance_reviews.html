@@ -1304,7 +1304,7 @@ function dashboardEntryFor(personId, cycle){
   return deptReportEntryFor(p, cycle, report);
 }
 
-function dashboardPersonRowHtml(e, cycle){
+function dashboardPersonRowHtml(e, cycle, isHR=true){
   const p = e.person;
   const expanded = STATE.dashboardExpandedId===p.id;
   const statusTag = e.status==='yes' ? '<span class="sevtag pip">PIP</span>' : (e.status==='monitor' ? '<span class="sevtag mon">MONITOR</span>' : '');
@@ -1315,7 +1315,7 @@ function dashboardPersonRowHtml(e, cycle){
     ${scoreBadge(e.score)}
     <span class="pchev">${expanded?'▲':'▼'}</span>
   </div>
-  ${expanded ? `<div class="pdetail">${myTeamTimelineHtml(e, cycle)}${myTeamPersonSectionsHtml(e, cycle)}</div>` : ''}`;
+  ${expanded ? `<div class="pdetail">${myTeamTimelineHtml(e, cycle)}${myTeamPersonSectionsHtml(e, cycle, isHR)}</div>` : ''}`;
 }
 
 function dashboardConcernRowHtml(r){
@@ -2256,7 +2256,7 @@ function viewManagerReports(cycle, person){
   let teamSaysText;
   if(!teamSaysVisible) teamSaysText = `Fewer than ${ANONYMITY_MIN} upward responses this cycle — themes withheld to protect anonymity.`;
   else if(upwardSummary && upwardSummary.themes) teamSaysText = upwardSummary.themes;
-  else teamSaysText = "HR hasn't written a themes summary for this manager yet — see Upward reviews.";
+  else teamSaysText = "HR hasn't written a themes summary for this manager yet — write one from their record in the Dashboard's People panel.";
 
   let calibrationText;
   if(givenAvg===null || companyAvg===null){
@@ -2314,10 +2314,7 @@ function viewManagerReports(cycle, person){
     <div class="block"><b>What their team says</b><p>${escapeHtml(teamSaysText)}</p></div>
     <div class="block"><b>How they review</b><p>${escapeHtml(calibrationText)}</p></div>
     <div class="block"><b>Follow-up discipline</b><p>${escapeHtml(followUpText)}</p></div>
-    <div class="field" style="margin-top:4px;margin-bottom:2px;"><label>Recommendation</label>
-      <textarea data-autosave-id="mrRec_${m.id}" data-mgr-recommendation="${m.id}" rows="4" placeholder="Internal notes and recommendation for ${escapeHtml(m.name)} — never published.">${escapeHtml(noteDoc.recommendation||'')}</textarea>
-    </div>
-    <div class="small muted" data-save-status-for="mrRec_${m.id}">&nbsp;</div>
+    <div class="small muted" style="margin-top:4px;">Analytics only — write the status and recommendation from ${escapeHtml(m.name)}'s record in the Dashboard's People panel.</div>
   </div>`;
 }
 /* ============================= HR: CYCLE & PEOPLE (the only settings screen) ============================= */
@@ -2718,10 +2715,10 @@ function viewDeptReport(dept, cycle, person, isAdmin){
       : `<p style="margin:0;white-space:pre-wrap;font-size:13.5px;line-height:1.5;">${escapeHtml(report.summary)||'—'}</p>`}
   </div>
 
-  <div class="divider"></div>
-  <h3>People</h3>
-  ${entries.length===0?'<div class="empty">No one to report on in this department.</div>':''}
-  ${entries.map(e=>deptReportPersonCardHtml(e, isAdmin, dept)).join('')}`;
+  <div class="panel">
+    <h3 class="ph">PEOPLE<span class="hint">click a person to expand their full record</span></h3>
+    ${entries.length===0 ? '<div class="empty" style="padding:16px;">No one to report on in this department.</div>' : entries.map(e=>dashboardPersonRowHtml(e, cycle, isAdmin)).join('')}
+  </div>`;
 }
 function viewManagerTracking(cycle){
   const managers = managersList();
@@ -2833,14 +2830,8 @@ function viewPeerHR(cycle){
           ${rv.answers.example?`<div><b>Example:</b> ${escapeHtml(rv.answers.example)}</div>`:''}
           ${rv.answers.growth?`<div><b>Suggestion:</b> ${escapeHtml(rv.answers.growth)}</div>`:''}
         </div>`).join('')}`).join('')}
-        ${lowCount ? `<div class="login-note">Heads up: fewer than ${ANONYMITY_MIN} responses — summarizing very specific wording could make it easier to guess who wrote it. You can still publish whenever you're ready.</div>` : ''}
-        <div class="field"><label>Summary to share with ${r.p.name} and their manager</label><div class="hint">Summarize the raw feedback above in your own words — this is what they'll see, never the raw quotes.</div>
-          <textarea data-peer-summary-themes="${r.p.id}">${summaryDraft&&summaryDraft.themes!==undefined?escapeHtml(summaryDraft.themes):(summary?escapeHtml(summary.themes||''):'')}</textarea>
-        </div>
-        <div class="row">
-          <button class="btn sm" data-publish-peer-summary="${r.p.id}">${summary&&summary.published?'Update published summary':'Publish summary'}</button>
-          ${summary&&summary.published?`<span class="badge ok">${icon('check',11)} Published ${fmtDate((summary.publishedAt||'').slice(0,10))}</span>`:''}
-        </div>
+        ${lowCount ? `<div class="login-note">Heads up: fewer than ${ANONYMITY_MIN} responses — summarizing very specific wording could make it easier to guess who wrote it.</div>` : ''}
+        <div class="small muted" style="margin-top:10px;">${summary&&summary.published?`Summary published ${fmtDate((summary.publishedAt||'').slice(0,10))}`:'No summary published yet'} — write or update it from ${r.p.name}'s record in the Dashboard's People panel.</div>
         </div>
       </td></tr>`;
       return rowHtml + expandedHtml;
@@ -3094,7 +3085,7 @@ function myTeamTimelineHtml(e, cycle){
   return `<div class="ptl">${items.map(it=>`<div class="${it.miss?'miss':''}"><span>${escapeHtml(it.label)}</span><b>${escapeHtml(it.val)}</b></div>`).join('')}</div>`;
 }
 
-function myTeamPersonSectionsHtml(e, cycle){
+function myTeamPersonSectionsHtml(e, cycle, isHR){
   const p = e.person;
   const parts = [];
 
@@ -3120,7 +3111,28 @@ function myTeamPersonSectionsHtml(e, cycle){
   if(hasReports(p.id)){
     const count = upwardCountFor(p.id, cycle.id);
     const summary = e.upwardSummary;
-    if(summary && summary.published){
+    if(isHR){
+      // HR authors the upward summary here — the only place it's written. Company Wide
+      // Feedback and Manager Reports stay read-only (intake queue / analytics).
+      const skipMgr = p.managerId ? getPerson(p.managerId) : null;
+      const curRecipients = summary ? (summary.recipients || 'manager') : 'manager';
+      const draft = loadLocalDraft(draftKey('summary', cycle.id, p.id));
+      const themesVal = draft && draft.themes!==undefined ? draft.themes : (summary?(summary.themes||''):'');
+      const body = `<div class="pdims"><span>Average <b>${e.upwardScore!==null?e.upwardScore.toFixed(1):'—'}</b></span><span>Responses <b>${count}</b></span></div>
+        <div class="pf"><b>SUMMARY TO SEND</b><p style="margin-bottom:6px;">Analyze the raw upward feedback and write your own summary — this is what gets sent, never the raw quotes.</p>
+          <textarea data-autosave-id="upSummary_${p.id}" data-summary-themes="${p.id}" rows="4">${escapeHtml(themesVal)}</textarea>
+        </div>
+        <div style="padding:0 14px 4px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <span style="font-size:9.5px;letter-spacing:.06em;color:#8a978f;font-weight:700;">SEND TO</span>
+          <select data-summary-recipients="${p.id}" style="font-size:12px;">
+            <option value="manager" ${curRecipients==='manager'?'selected':''}>${escapeHtml(p.name)} only</option>
+            ${skipMgr?`<option value="manager_and_skip" ${curRecipients==='manager_and_skip'?'selected':''}>${escapeHtml(p.name)} + ${escapeHtml(skipMgr.name)}</option>`:''}
+            ${skipMgr?`<option value="skip_only" ${curRecipients==='skip_only'?'selected':''}>${escapeHtml(skipMgr.name)} only</option>`:''}
+          </select>
+        </div>
+        <div style="padding:10px 14px 12px;"><span class="actbtn" data-publish-summary="${p.id}">${summary&&summary.published?'Update & send':'Send summary'}</span></div>`;
+      parts.push(myTeamSectionHtml('up_'+p.id, 'Team feedback · upward', 'done', (summary&&summary.published?'sent · ':'draft · ')+count+' collected · expand', body));
+    } else if(summary && summary.published){
       const body = `<div class="pdims"><span>Average <b>${e.upwardScore!==null?e.upwardScore.toFixed(1):'—'}</b></span><span>Responses <b>${summary.responseCount||0}</b></span></div>
         <div class="pf"><b>THEMES</b><p>${escapeHtml(summary.themes)||'No themes recorded.'}</p></div>`;
       parts.push(myTeamSectionHtml('up_'+p.id, 'Team feedback · upward', 'done', (summary.responseCount||0)+' responses · expand', body));
@@ -3130,7 +3142,23 @@ function myTeamPersonSectionsHtml(e, cycle){
   }
 
   const peerSummary = peerSummaryFor(p.id, cycle.id);
-  if(peerSummary && peerSummary.published){
+  if(isHR){
+    // HR authors the company-wide feedback summary here too — Company Wide Feedback itself
+    // is just the raw intake queue now, no publishing from that screen anymore.
+    const rawList = DB.reviews.peer.filter(r=>r.cycleId===cycle.id && r.targetId===p.id);
+    const draft = loadLocalDraft(draftKey('peerSummary', cycle.id, p.id));
+    const themesVal = draft && draft.themes!==undefined ? draft.themes : (peerSummary?(peerSummary.themes||''):'');
+    const rawHtml = rawList.length ? rawList.map(rv=>{
+      const rAvg = ratingAvgOfReview(rv);
+      return `<div class="pf"><p>"${escapeHtml(rv.answers.strengths||'')}"${rAvg!==null?' ('+rAvg.toFixed(1)+')':''}</p></div>`;
+    }).join('') : '<div class="pf"><p>No raw feedback submitted yet.</p></div>';
+    const body = `<div class="pf"><b>RAW PIECES · VISIBLE TO HR ONLY (${rawList.length})</b></div>${rawHtml}
+      <div class="pf"><b>SUMMARY TO SEND</b><p style="margin-bottom:6px;">Summarize the raw feedback in your own words — this is what they and their manager see, never the raw quotes.</p>
+        <textarea data-autosave-id="cwfSummary_${p.id}" data-peer-summary-themes="${p.id}" rows="4">${escapeHtml(themesVal)}</textarea>
+      </div>
+      <div style="padding:0 14px 12px;"><span class="actbtn" data-publish-peer-summary="${p.id}">${peerSummary&&peerSummary.published?'Update published summary':'Publish summary'}</span></div>`;
+    parts.push(myTeamSectionHtml('cwf_'+p.id, 'Company wide feedback', 'done', rawList.length+' pieces · expand', body));
+  } else if(peerSummary && peerSummary.published){
     const avgV = myTeamRatingAvg(peerSummary);
     const body = `<div class="pf"><b>HR PUBLISHED SUMMARY</b><p>${escapeHtml(peerSummary.themes)||'No summary text.'}</p></div>`;
     parts.push(myTeamSectionHtml('cwf_'+p.id, 'Company wide feedback', 'done', (peerSummary.responseCount||0)+' pieces'+(avgV!==null?' · avg '+avgV.toFixed(1):'')+' · expand', body));
@@ -3138,7 +3166,23 @@ function myTeamPersonSectionsHtml(e, cycle){
     parts.push(myTeamSectionHtml('cwf_'+p.id, 'Company wide feedback', 'pending', 'nothing published yet', ''));
   }
 
-  if(e.reportPublished){
+  if(isHR){
+    // The single place HR authors the status + recommendation. Department Reports is this
+    // same component grouped by department with a publish-to-manager button; nothing else
+    // writes to deptSummaries anymore.
+    const dept = deptGroupFor(p.id) || '';
+    const body = `<div style="padding:10px 14px 0;">
+        <select data-entry-status="${p.id}" data-dept="${escapeHtml(dept)}" style="font-size:12px;">
+          <option value="no" ${e.status==='no'?'selected':''}>No action</option>
+          <option value="monitor" ${e.status==='monitor'?'selected':''}>Monitor</option>
+          <option value="yes" ${e.status==='yes'?'selected':''}>PIP</option>
+        </select>
+      </div>
+      <div class="pf"><b>RECOMMENDATION</b>
+        <textarea data-autosave-id="dsRec_${p.id}" data-entry-recommendation="${p.id}" data-dept="${escapeHtml(dept)}" rows="3" placeholder="What should happen next for ${escapeHtml(p.name)}?">${escapeHtml(e.recommendation)}</textarea>
+      </div>`;
+    parts.push(myTeamSectionHtml('hr_'+p.id, 'HR summary & recommendation', 'done', (e.reportPublished?'published':'draft')+' · expand', body));
+  } else if(e.reportPublished){
     const statusLabel = {no:'No action', monitor:'Monitor', yes:'PIP'}[e.status] || 'No action';
     const body = `<div class="pf"><b>RECOMMENDATION</b><p>${escapeHtml(e.recommendation)||'No concerns flagged this cycle.'}</p></div><div class="pkv"><div><b>STATUS</b>${escapeHtml(statusLabel)}</div></div>`;
     parts.push(myTeamSectionHtml('hr_'+p.id, 'HR summary & recommendation', 'done', 'published · expand', body));
@@ -3149,7 +3193,7 @@ function myTeamPersonSectionsHtml(e, cycle){
   return parts.join('');
 }
 
-function myTeamPersonRowHtml(e, cycle){
+function myTeamPersonRowHtml(e, cycle, isHR){
   const p = e.person;
   const expanded = STATE.myTeamExpandedId===p.id;
   const statusTag = e.status==='yes' ? '<span class="sevtag pip">PIP</span>' : (e.status==='monitor' ? '<span class="sevtag mon">MONITOR</span>' : '');
@@ -3160,7 +3204,7 @@ function myTeamPersonRowHtml(e, cycle){
     ${scoreBadge(e.score)}
     <span class="pchev">${expanded?'▲':'▼'}</span>
   </div>
-  ${expanded ? `<div class="pdetail">${myTeamTimelineHtml(e, cycle)}${myTeamPersonSectionsHtml(e, cycle)}</div>` : ''}`;
+  ${expanded ? `<div class="pdetail">${myTeamTimelineHtml(e, cycle)}${myTeamPersonSectionsHtml(e, cycle, isHR)}</div>` : ''}`;
 }
 
 // My Team replaces both Team Home and Department Report. Department heads see their whole
@@ -3185,6 +3229,7 @@ function viewMyTeam(cycle, person){
   });
 
   const headEntry = isHead ? deptReportEntryFor(person, cycle, report) : null;
+  const isHR = person.role==='hr';
 
   const avgPool = (isHead ? [headEntry.score, ...entries.map(e=>e.score)] : entries.map(e=>e.score)).filter(v=>v!==null);
   const teamAvg = avgPool.length ? avg(avgPool) : null;
@@ -3228,11 +3273,11 @@ function viewMyTeam(cycle, person){
     <div class="stat ${concernsCount>0?'bad':''}"><div class="num">${concernsCount}</div><div class="lbl">Concerns</div><div class="small muted" style="margin-top:2px;">${escapeHtml(concernCaption)}</div></div>
   </div>
 
-  ${isHead ? `<div class="panel"><h3 class="ph">DEPARTMENT HEAD</h3>${myTeamPersonRowHtml(headEntry, cycle)}</div>` : ''}
+  ${isHead ? `<div class="panel"><h3 class="ph">DEPARTMENT HEAD</h3>${myTeamPersonRowHtml(headEntry, cycle, isHR)}</div>` : ''}
 
   <div class="panel">
     <h3 class="ph">MY TEAM<span class="hint">click a person to expand their full record</span></h3>
-    ${entries.length===0 ? '<div class="empty" style="padding:16px;">No direct reports.</div>' : entries.map(e=>myTeamPersonRowHtml(e, cycle)).join('')}
+    ${entries.length===0 ? '<div class="empty" style="padding:16px;">No direct reports.</div>' : entries.map(e=>myTeamPersonRowHtml(e, cycle, isHR)).join('')}
   </div>
 
   <div class="panel">
