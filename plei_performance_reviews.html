@@ -60,11 +60,11 @@
   .grid-4{grid-template-columns:repeat(4,1fr);}
   @media(max-width:900px){.grid-3,.grid-2,.grid-4{grid-template-columns:1fr;}}
   .stat{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px;display:flex;flex-direction:column;justify-content:center;min-height:74px;}
-  .stat.bad{border-color:var(--bad);}
-  .stat.warn{border-color:var(--warn);}
+  .stat.bad{border-color:var(--bad);background:var(--bad-bg);}
+  .stat.warn{border-color:var(--warn);background:var(--warn-bg);}
   .stat.warn .num{color:var(--warn);}
   .stat.bad .num{color:var(--bad);}
-  .stat.ok{border-color:var(--ok);}
+  .stat.ok{border-color:var(--ok);background:var(--ok-bg);}
   .stat.ok .num{color:var(--ok);}
   .stat .num{font-size:26px;font-weight:800;}
   .stat .lbl{color:var(--sub);font-size:12.5px;margin-top:2px;}
