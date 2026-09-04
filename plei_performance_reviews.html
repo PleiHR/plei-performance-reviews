@@ -703,7 +703,6 @@ let STATE = {
   navCollapsed: {},
   cwDept: null,
   cwTarget: null,
-  profilePersonId: null,
   deptSummaryDept: null,
   deptSummaryOpenId: null,
   autosaveFocusId: null,
@@ -1330,7 +1329,6 @@ function render(){
 function renderView(nav, cycle, person){
   switch(nav){
     case 'dashboard': return viewDashboard(cycle, person);
-    case 'people': return viewPeopleProfiles(cycle);
     case 'deptSummaries': return viewDeptSummaries(cycle, person);
     case 'peer': return viewPeerHR(cycle);
     case 'myteam': return viewMyTeam(cycle, person);
@@ -1822,122 +1820,6 @@ async function deleteDept(name){
   toast('Department deleted'); render();
 }
 
-/* ============================= HR: MANAGER TRACKING ============================= */
-const MAX_PERSON_FILE_BYTES = 700*1024; // Firestore doc cap is 1MiB; base64 adds ~33% overhead, so keep raw files well under that.
-function personFilesFor(personId){ return DB.personFiles.filter(f=>f.personId===personId).sort((a,b)=>(b.uploadedAt||'').localeCompare(a.uploadedAt||'')); }
-function fmtBytes(n){ if(!n) return '0 B'; const u=['B','KB','MB']; let i=0; while(n>=1024 && i<u.length-1){ n/=1024; i++; } return n.toFixed(i?1:0)+' '+u[i]; }
-function fileToDataURL(file){ return new Promise((resolve,reject)=>{ const r = new FileReader(); r.onload = ()=>resolve(r.result); r.onerror = ()=>reject(r.error); r.readAsDataURL(file); }); }
-
-function viewPeopleProfiles(cycle){
-  if(STATE.profilePersonId){
-    const p = getPerson(STATE.profilePersonId);
-    if(p) return viewPersonProfileDetail(cycle, p);
-    STATE.profilePersonId = null;
-  }
-  const rows = DB.people.slice().sort((a,b)=>a.name.localeCompare(b.name));
-  const deptOrder = DB.departments.slice();
-  rows.forEach(p=>{ if(!deptOrder.includes(p.department)) deptOrder.push(p.department); });
-  const byDept = {};
-  rows.forEach(p=>{ (byDept[p.department] = byDept[p.department]||[]).push(p); });
-  const sections = deptOrder.filter(d=>byDept[d]&&byDept[d].length).map(d=>{
-    const people = byDept[d];
-    return `<div data-dept-section data-dept-search="${escapeHtml(d.toLowerCase())}" style="margin-bottom:22px;">
-      <h3 style="margin:0 0 8px;">${escapeHtml(d)} <span class="muted small">(${people.length})</span></h3>
-      <table><thead><tr><th>Person</th><th>Role</th><th>Title</th><th></th></tr></thead><tbody>
-      ${people.map(p=>`<tr data-person-row data-person-search="${escapeHtml((p.name+' '+p.department).toLowerCase())}" style="${p.deactivated?'opacity:.55;':''}cursor:pointer;" data-view-profile="${p.id}">
-        <td><div class="person-cell"><div class="avatar">${initials(p.name)}</div>${p.name}${p.deactivated?' <span class="badge bad">Deactivated</span>':''}</div></td>
-        <td><span class="badge neutral">${p.role==='hr'?'HR':p.role==='manager'?'Manager':'Employee'}</span></td>
-        <td class="muted small">${p.title||'—'}</td>
-        <td><button class="btn ghost sm" data-view-profile="${p.id}">View profile →</button></td>
-      </tr>`).join('')}
-      </tbody></table>
-    </div>`;
-  }).join('');
-  return `<div class="card">
-    <h2>People profiles</h2>
-    <div class="desc">Full review history for each person in one place — self-reviews, manager reviews, upward and company wide feedback summaries, 1:1s, and any files or notes you've uploaded outside the platform. Everything is dated. Grouped by department.</div>
-    <input type="text" id="peopleSearchInput" placeholder="Search by name or department..." style="width:100%;max-width:340px;margin-bottom:14px;">
-    <div id="peopleProfilesBody">${sections}</div>
-  </div>`;
-}
-
-function viewPersonProfileDetail(cycle, person){
-  const mgr = person.managerId ? getPerson(person.managerId) : null;
-  const cycles = DB.cycles.slice().sort((a,b)=>b.year-a.year || (a.type<b.type?1:-1));
-  const hasScoreHistory = DB.reviews.manager.some(r=>r.employeeId===person.id && r.status==='submitted');
-  const cycleBlocks = cycles.map(c=>{
-    const selfRev = findReview('self', c.id, x=>x.employeeId===person.id && x.status==='submitted');
-    const mgrRev = findReview('manager', c.id, x=>x.employeeId===person.id && x.status==='submitted');
-    const upSummary = upwardSummaryFor(person.id, c.id);
-    const upList = DB.reviews.upward.filter(r=>r.cycleId===c.id && r.managerId===person.id);
-    const upAvg = avg(upList.map(ratingAvgOfReview).filter(Boolean));
-    const peerSummary = peerSummaryFor(person.id, c.id);
-    const peerList = DB.reviews.peer.filter(r=>r.cycleId===c.id && r.targetId===person.id);
-    const peerAvg = avg(peerList.map(ratingAvgOfReview).filter(Boolean));
-    const o11 = oneOnOneFor(person.id, c.id);
-    const hasAnything = selfRev || mgrRev || upSummary || peerSummary || o11;
-    if(!hasAnything) return '';
-    return `<div class="card" style="margin-bottom:16px;">
-      <h3 style="margin-top:0;">${c.label}</h3>
-      <div class="grid grid-2">
-        <div>
-          <b>Self-review</b>
-          ${selfRev ? `<div class="small muted" style="margin:4px 0 10px;">Submitted ${fmtDateTime(selfRev.submittedAt)}</div>
-            ${SELF_FIELDS.map(f=>`<div class="block"><b>${f.label}</b><p>${escapeHtml(selfRev.answers[f.key])||'—'}</p></div>`).join('')}`
-            : '<div class="empty">Not submitted.</div>'}
-        </div>
-        <div>
-          <b>Manager review</b>
-          ${mgrRev ? `<div class="small muted" style="margin:4px 0 10px;">By ${mgr?mgr.name:'—'} · ${fmtDateTime(mgrRev.submittedAt)}</div>
-            <table>${MANAGER_RATINGS.map(f=>`<tr><td>${f.label}</td><td><b>${mgrRev.ratings[f.key]}</b>/5 — ${RATING_LABELS[mgrRev.ratings[f.key]]}</td></tr>`).join('')}</table>
-            ${MANAGER_FIELDS.map(f=>`<div class="block"><b>${f.label}</b><p>${escapeHtml(mgrRev.answers[f.key])||'—'}</p></div>`).join('')}`
-            : '<div class="empty">Not submitted.</div>'}
-        </div>
-      </div>
-      ${(upSummary||upList.length) ? `<div class="divider"></div><b>Upward feedback (as a manager)</b>
-        <div class="small muted" style="margin:4px 0 10px;">${upList.length} response${upList.length===1?'':'s'} · average ${upAvg?upAvg.toFixed(1):'—'}</div>
-        ${(upSummary&&upSummary.published) ? `<div class="block"><b>Published summary — ${fmtDateTime(upSummary.publishedAt)}</b><p>${escapeHtml(upSummary.themes)||'—'}</p></div>` : '<div class="empty">No summary published yet.</div>'}` : ''}
-      ${(peerSummary||peerList.length) ? `<div class="divider"></div><b>Company wide feedback received</b>
-        <div class="small muted" style="margin:4px 0 10px;">${peerList.length} piece${peerList.length===1?'':'s'} · average ${peerAvg?peerAvg.toFixed(1):'—'}</div>
-        ${(peerSummary&&peerSummary.published) ? `<div class="block"><b>Published summary — ${fmtDateTime(peerSummary.publishedAt)}</b><p>${escapeHtml(peerSummary.themes)||'—'}</p></div>` : '<div class="empty">No summary published yet.</div>'}` : ''}
-      ${o11 ? `<div class="divider"></div><b>1:1 conversation</b>
-        <div class="small muted" style="margin:4px 0;">${o11.status==='completed'?`Completed ${fmtDateTime(o11.completedAt)}`:(o11.scheduledAt?`Scheduled ${fmtDateTime(o11.scheduledAt)}`:'Not scheduled yet')}</div>` : ''}
-    </div>`;
-  }).filter(Boolean).join('');
-
-  return `<div class="card">
-    <button class="btn ghost sm" id="backToPeopleList">← Back to people</button>
-    <div class="row" style="justify-content:space-between;margin-top:14px;">
-      <div class="person-cell"><div class="avatar">${initials(person.name)}</div>
-        <div><b>${person.name}</b><div class="small muted">${person.title||''} · ${person.department}${mgr?' · Reports to '+mgr.name:''}</div></div>
-      </div>
-      <span class="badge neutral">${person.role==='hr'?'HR':person.role==='manager'?'Manager':'Employee'}</span>
-    </div>
-  </div>
-  ${hasScoreHistory ? `<div class="card">
-        <h2 style="margin-top:0;">Score over time</h2>
-        <div class="desc">Overall manager review score across cycles, as more reviews are completed.</div>
-        <canvas id="personScoreChart" height="180"></canvas>
-      </div>` : ''}
-      ${cycleBlocks || '<div class="card"><div class="empty">No review history yet for this person.</div></div>'}
-  <div class="card">
-    <h2>External files &amp; notes</h2>
-    <div class="desc">Upload reviews or feedback you received outside the platform (PDFs, docs, screenshots — up to ~${fmtBytes(MAX_PERSON_FILE_BYTES)} each). Everything is dated automatically.</div>
-    <div class="field"><label>File</label><input type="file" id="personFileInput"></div>
-    <div class="field"><label>Note (optional)</label><textarea id="personFileNote" placeholder="e.g. Feedback from their manager at a previous job, shared by email on..."></textarea></div>
-    <button class="btn sm" id="uploadPersonFileBtn" data-person-id="${person.id}">Upload</button>
-    <div id="personFileUploadStatus" class="small muted" style="margin-top:6px;"></div>
-    <table style="margin-top:16px;"><thead><tr><th>File</th><th>Note</th><th>Uploaded</th><th></th></tr></thead><tbody>
-    ${personFilesFor(person.id).length===0?'<tr><td colspan="4" class="empty">No files uploaded yet.</td></tr>':''}
-    ${personFilesFor(person.id).map(f=>`<tr>
-      <td><a href="${escapeHtml(f.dataUrl)}" download="${escapeHtml(f.fileName)}">${escapeHtml(f.fileName)}</a> <span class="small muted">(${fmtBytes(f.size)})</span></td>
-      <td class="small">${escapeHtml(f.note)||'—'}</td>
-      <td class="small muted">${fmtDateTime(f.uploadedAt)}${f.uploadedByName?' · '+escapeHtml(f.uploadedByName):''}</td>
-      <td><button class="btn ghost sm" data-delete-person-file="${f.id}">Delete</button></td>
-    </tr>`).join('')}
-    </tbody></table>
-  </div>`;
-}
 
 function deptSummariesFor(dept){ return DB.deptSummaries.filter(s=>s.department===dept).sort((a,b)=>(b.updatedAt||'').localeCompare(a.updatedAt||'')); }
 
@@ -2735,18 +2617,6 @@ function viewPeerHR(cycle){
 
 
 
-function drawPersonScoreChart(person){
-  const el = document.getElementById('personScoreChart');
-  if(!el || typeof Chart==='undefined') return;
-  const cycles = DB.cycles.slice().sort((a,b)=>a.startDate.localeCompare(b.startDate));
-  const points = cycles.map(c=>{
-    const rev = findReview('manager', c.id, x=>x.employeeId===person.id && x.status==='submitted');
-    return rev ? ratingAvgOfReview(rev) : null;
-  });
-  if(!points.some(v=>v!=null)) return;
-  new Chart(el, {type:'line', data:{labels:cycles.map(c=>c.label), datasets:[{label:'Overall score', data:points, borderColor:'#16755C', backgroundColor:'#E6FAF5', fill:true, tension:.3, spanGaps:true}]},
-    options:{plugins:{title:{display:true,text:'Overall score by cycle'},legend:{display:false}}, scales:{y:{min:0,max:5}}}});
-}
 
 
 /* ============================= HR: SUGGESTIONS ============================= */
@@ -3577,44 +3447,6 @@ function bindViewEvents(role, nav, cycle, person){
   document.getElementById('openDeptSettingsBtn')?.addEventListener('click', ()=>deptSettingsModal());
   document.getElementById('openLoginSettingsBtn')?.addEventListener('click', ()=>loginSettingsModal());
 
-  // People profiles
-  document.querySelectorAll('[data-view-profile]').forEach(el=>el.addEventListener('click', ()=>{ STATE.profilePersonId = el.dataset.viewProfile; render(); }));
-  document.getElementById('backToPeopleList')?.addEventListener('click', ()=>{ STATE.profilePersonId = null; render(); });
-  document.getElementById('peopleSearchInput')?.addEventListener('input', e=>{
-    const q = e.target.value.trim().toLowerCase();
-    document.querySelectorAll('#peopleProfilesBody [data-person-row]').forEach(row=>{
-      row.style.display = row.dataset.personSearch.includes(q) ? '' : 'none';
-    });
-    document.querySelectorAll('#peopleProfilesBody [data-dept-section]').forEach(sec=>{
-      const anyVisible = Array.from(sec.querySelectorAll('[data-person-row]')).some(r=>r.style.display!=='none');
-      sec.style.display = anyVisible ? '' : 'none';
-    });
-  });
-  document.getElementById('uploadPersonFileBtn')?.addEventListener('click', async ()=>{
-    const personId = document.getElementById('uploadPersonFileBtn').dataset.personId;
-    const input = document.getElementById('personFileInput');
-    const status = document.getElementById('personFileUploadStatus');
-    const file = input.files[0];
-    if(!file){ status.textContent = 'Choose a file first.'; return; }
-    if(file.size > MAX_PERSON_FILE_BYTES){ status.textContent = `That file is ${fmtBytes(file.size)} — please keep it under ${fmtBytes(MAX_PERSON_FILE_BYTES)}.`; return; }
-    status.textContent = 'Uploading...';
-    try{
-      const dataUrl = await fileToDataURL(file);
-      const note = document.getElementById('personFileNote').value.trim();
-      const me = sessionPerson();
-      await fdb.collection('personFiles').add({
-        personId, fileName: file.name, contentType: file.type||'application/octet-stream', size: file.size,
-        dataUrl, note, uploadedBy: me.email, uploadedByName: me.name, uploadedAt: new Date().toISOString()
-      });
-      toast('File uploaded'); render();
-    }catch(e){ console.error(e); status.textContent = 'Upload failed: ' + e.message; }
-  });
-  document.querySelectorAll('[data-delete-person-file]').forEach(el=>el.addEventListener('click', async ()=>{
-    if(!confirm('Delete this file? This cannot be undone.')) return;
-    await fdb.collection('personFiles').doc(el.dataset.deletePersonFile).delete();
-    toast('File deleted'); render();
-  }));
-
   // Department Report (single edition — admin authors per department via tabs, a manager only
   // ever sees their own, read-only once published).
   document.querySelectorAll('[data-dept-tab]').forEach(el=>el.addEventListener('click', ()=>{ STATE.deptSummaryDept = el.dataset.deptTab; render(); }));
@@ -3772,8 +3604,6 @@ function bindViewEvents(role, nav, cycle, person){
   document.querySelectorAll('[data-toggle-myteam-section]').forEach(el=>el.addEventListener('click', (ev)=>{ ev.stopPropagation(); const key = el.dataset.toggleMyteamSection; STATE.myTeamOpenSections[key] = !STATE.myTeamOpenSections[key]; render(); }));
 
   document.querySelectorAll('[data-nav]').forEach(el=>{ if(el.closest('.card')) el.addEventListener('click', ()=>{ STATE.nav = el.dataset.nav; STATE.cwDept=null; STATE.cwTarget=null; STATE.profilePersonId=null; STATE.deptSummaryDept=null; STATE.deptSummaryOpenId=null; STATE.dashboardPeopleSearch=''; STATE.dashboardPeopleDetailId=null; render(); }); });
-
-  if(STATE.profilePersonId){ const pp = getPerson(STATE.profilePersonId); if(pp) setTimeout(()=>drawPersonScoreChart(pp), 30); }
 
   // Manager: team list -> open review form / read self-review
   document.querySelectorAll('[data-fill-manager]').forEach(el=>el.addEventListener('click', ()=>{
