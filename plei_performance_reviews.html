@@ -2023,6 +2023,14 @@ function viewTodos(cycle, person){
   // as below a quality bar (deptSummaries.pipStatus flags a *person*, not a review), so there is
   // no real data to derive this row from. Flagged for phase 6 if HR wants this concept added.
 
+  // Kudos: completion is derived from this person's own authorship records for the cycle —
+  // folded into the cycle to-dos so it's all in one place; anytime feedback later in the
+  // year is still available via Give Feedback in the sidebar.
+  const gaveFeedback = (DB.peerAuthorship||[]).some(r=>r.cycleId===cycle.id && r.authorEmail===person.email);
+  const gaveSuggestion = (DB.suggestionAuthorship||[]).some(r=>r.cycleId===cycle.id && r.authorEmail===person.email);
+  rows1.push(todoRowHtml({done:gaveFeedback, label:'Give anonymous feedback about a colleague', actionLabel: gaveFeedback?null:'Start', actionAttr:'data-nav="peerform"'}));
+  rows1.push(todoRowHtml({done:gaveSuggestion, label:'Drop a suggestion in the box', actionLabel: gaveSuggestion?null:'Start', actionAttr:'data-nav="suggestform"'}));
+
   const buckets = [];
   buckets.push({header: cycle.label.toUpperCase(), hint: `due ${fmtShort(cycle.endDate)}`, rowsHtml: rows1.join('')});
 
@@ -2068,16 +2076,6 @@ function viewTodos(cycle, person){
     });
   }
   buckets.push({header: 'Coffee chat', hint: 'monthly', rowsHtml: coffeeRowHtml});
-
-  // Kudos: completion is derived from this person's own authorship records for the cycle —
-  // never manually checked off.
-  const gaveFeedback = (DB.peerAuthorship||[]).some(r=>r.cycleId===cycle.id && r.authorEmail===person.email);
-  const gaveSuggestion = (DB.suggestionAuthorship||[]).some(r=>r.cycleId===cycle.id && r.authorEmail===person.email);
-  const kudosRows = [
-    todoRowHtml({done:gaveFeedback, label:'Give anonymous feedback about a colleague', actionLabel: gaveFeedback?null:'Start', actionAttr:'data-nav="peerform"'}),
-    todoRowHtml({done:gaveSuggestion, label:'Drop a suggestion in the box', actionLabel: gaveSuggestion?null:'Start', actionAttr:'data-nav="suggestform"'}),
-  ].join('');
-  buckets.push({header:'Kudos', hint:'', rowsHtml: kudosRows});
 
   return `<div class="h1" style="font-family:var(--font-head);font-weight:600;font-size:22px;margin-bottom:14px;">Your to-dos</div>
   ${buckets.map(b=>`<div class="card">
