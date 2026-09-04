@@ -1270,7 +1270,7 @@ function render(){
   // it's included here only so STATE.nav stays valid when the avatar click sets it.
   // 'myself' (self-review form) and 'upwardform' (review-your-manager form) are reachable only
   // via the "Write"/"Start" buttons on the To-Dos screen — same reasoning, not sidebar items.
-  const items = [...mineItems, ...managerItems, ...adminItems, ...helpItems, {id:'myreviews'}, {id:'myself'}, {id:'upwardform'}];
+  const items = [...mineItems, ...managerItems, ...adminItems, ...helpItems, {id:'myreviews'}, {id:'myself'}, {id:'upwardform'}, {id:'deptSummaries'}, {id:'mreports'}];
   if(!items.find(i=>i.id===STATE.nav)) STATE.nav = mineItems[0].id;
 
   root.innerHTML = `
