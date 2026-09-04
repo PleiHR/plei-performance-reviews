@@ -2814,11 +2814,11 @@ function viewMyTeam(cycle, person){
   const report = isHead ? deptReportFor(headGroup) : null;
 
   const members = isHead
-    ? summaryGroupMembers(headGroup).filter(p=>p.id!==person.id)
+    ? Array.from(new Map([...summaryGroupMembers(headGroup).filter(p=>p.id!==person.id), ...directReports(person.id)].map(p=>[p.id,p])).values())
     : directReports(person.id);
 
   const entries = members.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(p=>{
-    const g = isHead ? headGroup : deptGroupFor(p.id);
+    const g = isHead ? (deptGroupFor(p.id) || headGroup) : deptGroupFor(p.id);
     const r = g ? deptReportFor(g) : {id:null, people:{}, status:'draft'};
     return deptReportEntryFor(p, cycle, r);
   });
