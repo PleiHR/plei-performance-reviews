@@ -1260,7 +1260,6 @@ function render(){
     adminItems.push(
       {id:'dashboard', icon:'dashboard', label:'Dashboard'},
       {id:'deptSummaries', icon:'book', label:'Department Reports'},
-      {id:'peer', icon:'users', label:'Company Wide Feedback'},
       {id:'mreports', icon:'file', label:'Manager Reports'},
       {id:'cyclepeople', icon:'calendar', label:'Organization'},
     );
@@ -3221,6 +3220,8 @@ function viewMyReviews(cycle, person){
 
   const myPeerReviews = DB.peerAuthorship.filter(r=>r.authorEmail===person.email).sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
   const myPeerSummary = peerSummaryFor(person.id, cycle.id);
+  const myFollowUps = (DB.followUps||[]).filter(f=>f.personId===person.id).sort((a,b)=>(a.checkpointDate||'').localeCompare(b.checkpointDate||''));
+  const followUpsToday = new Date().toISOString().slice(0,10);
 
   // Only cycles with a submitted self-review and/or manager review show up here.
   const reviewCycles = cyclesDesc.filter(c=>{
@@ -3283,6 +3284,20 @@ function viewMyReviews(cycle, person){
       </div>
       <div class="quote-card"><div class="meta">Summary from HR · ${myPeerSummary.responseCount} responses</div><p style="margin:0;white-space:pre-wrap;">${myPeerSummary.themes||'—'}</p></div>
     ` : `<div class="empty">HR has not published a summary for ${escapeHtml(cycle.label)} yet.</div>`}
+  </div>
+  <div class="card">
+    <h3 class="section-h">Follow-ups from my manager</h3>
+    <div class="desc">Things your manager wants you to keep working on, logged year-round outside the review cycle.</div>
+    ${myFollowUps.length===0 ? `<div class="empty">No follow-ups logged yet.</div>` : myFollowUps.map(f=>{
+      const isDone = f.status==='done';
+      const isOverdue = !isDone && f.checkpointDate && f.checkpointDate<followUpsToday;
+      const pillCls = isDone ? 'ok' : (isOverdue ? 'warn' : 'neutral');
+      const pillLabel = isDone ? 'Done' : (isOverdue ? 'Overdue' : 'Open');
+      return `<div class="prow" style="cursor:default;">
+        <div class="who"><b>${escapeHtml(f.commitment||'Check-in')}</b><span>Check-in ${fmtDate(f.checkpointDate)}</span></div>
+        <span class="stpill ${pillCls}">${pillLabel}</span>
+      </div>`;
+    }).join('')}
   </div>`;
 }
 
