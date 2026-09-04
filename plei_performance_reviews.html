@@ -532,12 +532,34 @@ function startReviewListeners(email, isHR){
     reviewListenerUnsubs.push(fdb.collection('followUps').onSnapshot(snap=>{ DB.followUps = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('coffeeChats').onSnapshot(snap=>{ DB.coffeeChats = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
   } else {
-    let selfMine = [], selfTeam = [];
-    reviewListenerUnsubs.push(fdb.collection('reviews_self').where('employeeEmail','==',email).onSnapshot(snap=>{ selfMine = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); DB.reviews.self = mergeById(selfMine, selfTeam); if(DB_LOADED) render(); }, e=>console.error(e)));
-    reviewListenerUnsubs.push(fdb.collection('reviews_self').where('managerEmail','==',email).onSnapshot(snap=>{ selfTeam = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); DB.reviews.self = mergeById(selfMine, selfTeam); if(DB_LOADED) render(); }, e=>console.error(e)));
-    let mgrMine = [], mgrTeam = [];
-    reviewListenerUnsubs.push(fdb.collection('reviews_manager').where('employeeEmail','==',email).onSnapshot(snap=>{ mgrMine = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); DB.reviews.manager = mergeById(mgrMine, mgrTeam); if(DB_LOADED) render(); }, e=>console.error(e)));
-    reviewListenerUnsubs.push(fdb.collection('reviews_manager').where('managerEmail','==',email).onSnapshot(snap=>{ mgrTeam = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); DB.reviews.manager = mergeById(mgrMine, mgrTeam); if(DB_LOADED) render(); }, e=>console.error(e)));
+    let selfMine = [], mgrMine = [];
+    const selfTeamChunks = [], mgrTeamChunks = [];
+    function recomputeSelfTeam(){
+      const merged = [], seen = new Set();
+      selfTeamChunks.forEach(arr=>{ (arr||[]).forEach(r=>{ if(!seen.has(r.id)){ seen.add(r.id); merged.push(r); } }); });
+      DB.reviews.self = mergeById(selfMine, merged);
+      if(DB_LOADED) render();
+    }
+    function recomputeMgrTeam(){
+      const merged = [], seen = new Set();
+      mgrTeamChunks.forEach(arr=>{ (arr||[]).forEach(r=>{ if(!seen.has(r.id)){ seen.add(r.id); merged.push(r); } }); });
+      DB.reviews.manager = mergeById(mgrMine, merged);
+      if(DB_LOADED) render();
+    }
+    reviewListenerUnsubs.push(fdb.collection('reviews_self').where('employeeEmail','==',email).onSnapshot(snap=>{ selfMine = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); recomputeSelfTeam(); }, e=>console.error(e)));
+    reviewListenerUnsubs.push(fdb.collection('reviews_manager').where('employeeEmail','==',email).onSnapshot(snap=>{ mgrMine = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); recomputeMgrTeam(); }, e=>console.error(e)));
+    // Team-scoped reads: fetch by CURRENT reporting relationship (DB.people, already scoped to my
+    // subtree via managerChain) rather than the managerEmail snapshot stored on each review — so a
+    // review stays visible to whoever manages that person today, even across manager reassignments
+    // and past cycles, not just the person who originally wrote it.
+    const myTeamIds = Array.from(new Set(DB.people.filter(p=>p.id!==myId).map(p=>p.id)));
+    for(let i=0;i<myTeamIds.length;i+=30){
+      const chunk = myTeamIds.slice(i,i+30);
+      const selfSlot = selfTeamChunks.length; selfTeamChunks.push([]);
+      reviewListenerUnsubs.push(fdb.collection('reviews_self').where('employeeId','in',chunk).onSnapshot(snap=>{ selfTeamChunks[selfSlot] = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); recomputeSelfTeam(); }, e=>console.error(e)));
+      const mgrSlot = mgrTeamChunks.length; mgrTeamChunks.push([]);
+      reviewListenerUnsubs.push(fdb.collection('reviews_manager').where('employeeId','in',chunk).onSnapshot(snap=>{ mgrTeamChunks[mgrSlot] = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); recomputeMgrTeam(); }, e=>console.error(e)));
+    }
     // Raw company wide feedback content never reaches non-HR clients — only HR-published summaries do.
     DB.reviews.peer = [];
     let peerSummaryAsTarget = [], peerSummaryAsManager = [];
