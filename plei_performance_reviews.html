@@ -3219,7 +3219,6 @@ function viewMyReviews(cycle, person){
   const onTimePct = onTimeChecks.length ? Math.round(onTimeChecks.filter(Boolean).length / onTimeChecks.length * 100) : null;
 
   const myPeerReviews = DB.peerAuthorship.filter(r=>r.authorEmail===person.email).sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
-  const myPeerSummary = peerSummaryFor(person.id, cycle.id);
   const myFollowUps = (DB.followUps||[]).filter(f=>f.personId===person.id).sort((a,b)=>(a.checkpointDate||'').localeCompare(b.checkpointDate||''));
   const followUpsToday = new Date().toISOString().slice(0,10);
 
@@ -3274,16 +3273,6 @@ function viewMyReviews(cycle, person){
     ${myPeerReviews.map(r=>`<tr><td>${getPerson(r.targetId)?escapeHtml(getPerson(r.targetId).name):'Colleague'}</td><td>Company wide feedback</td><td>${getCycle(r.cycleId)?escapeHtml(getCycle(r.cycleId).label):'—'}</td><td><button class="actbtn" data-print-peer="${r.id}">View</button></td></tr>`).join('')}
     </tbody></table>`}
     <div class="small muted" style="margin-top:8px;">Suggestion box entries are not listed here yet. They route to HR only, even for your own submissions.</div>
-  </div>
-  <div class="card">
-    <h3 class="section-h">Feedback about me</h3>
-    <div class="desc">HR reviews raw company wide feedback and shares a summary here once enough responses come in. Never the raw quotes.</div>
-    ${myPeerSummary && myPeerSummary.published ? `
-      <div class="grid grid-3" style="margin-bottom:16px;">
-        ${PEER_RATINGS.map(f=>`<div class="stat"><div class="num">${myPeerSummary.avgRatings&&myPeerSummary.avgRatings[f.key]?myPeerSummary.avgRatings[f.key].toFixed(1):'—'}</div><div class="lbl">${f.label}</div></div>`).join('')}
-      </div>
-      <div class="quote-card"><div class="meta">Summary from HR · ${myPeerSummary.responseCount} responses</div><p style="margin:0;white-space:pre-wrap;">${myPeerSummary.themes||'—'}</p></div>
-    ` : `<div class="empty">HR has not published a summary for ${escapeHtml(cycle.label)} yet.</div>`}
   </div>
   <div class="card">
     <h3 class="section-h">Follow-ups from my manager</h3>
