@@ -1259,8 +1259,6 @@ function render(){
   if(role==='hr'){
     adminItems.push(
       {id:'dashboard', icon:'dashboard', label:'Dashboard'},
-      {id:'deptSummaries', icon:'book', label:'Department Reports'},
-      {id:'mreports', icon:'file', label:'Manager Reports'},
       {id:'cyclepeople', icon:'calendar', label:'Organization'},
     );
   }
@@ -1430,6 +1428,7 @@ function dashboardDeptRowHtml(g, cycle){
     <div class="who"><b>${escapeHtml(g)}</b><span>${head?escapeHtml(head.name):'—'}</span></div>
     <div style="text-align:center;flex-shrink:0;"><div style="font-size:9px;color:#8a978f;letter-spacing:.05em;font-weight:700;">DEPT AVG${deptPool.length?' · '+deptPool.length:''}</div>${scoreBadge(deptAvg)}</div>
     <div style="text-align:center;flex-shrink:0;"><div style="font-size:9px;color:#8a978f;letter-spacing:.05em;font-weight:700;">HEAD</div>${scoreBadge(headScore)}</div>
+    <span class="stpill ${report.status==='published'?'ok':'neutral'}">${report.status==='published'?'✓ Published':'Draft'}</span>
     <button class="btn ghost sm" data-open-dept-report="${escapeHtml(g)}">Report →</button>
   </div>`;
 }
@@ -2528,10 +2527,10 @@ function viewDeptReport(dept, cycle, person, isAdmin){
   </div>
 
   <div class="grid grid-4">
-    <div class="stat"><div class="num">${scoreBadge(teamScore)}</div><div class="lbl">Team score${deptScorePool.length?' · '+deptScorePool.length+' scored':''}</div></div>
-    <div class="stat"><div class="num">${scoreBadge(managerScore)}</div><div class="lbl">Manager score</div></div>
+    <div class="stat ${teamScore===null?'':(teamScore>=4.0?'ok':(teamScore<3.0?'bad':'warn'))}"><div class="num">${teamScore!==null?teamScore.toFixed(1):'—'}</div><div class="lbl">Team score${deptScorePool.length?' · '+deptScorePool.length+' scored':''}</div></div>
+    <div class="stat ${managerScore===null?'':(managerScore>=4.0?'ok':(managerScore<3.0?'bad':'warn'))}"><div class="num">${managerScore!==null?managerScore.toFixed(1):'—'}</div><div class="lbl">Manager score</div></div>
     <div class="stat"><div class="num">${completionPct}%</div><div class="lbl">Completion</div></div>
-    <div class="stat ${concernsCount>0?'bad':''}"><div class="num">${concernsCount}</div><div class="lbl">Concerns</div></div>
+    <div class="stat ${concernsCount>0?'bad':''}" style="margin-left:8px;"><div class="num">${concernsCount}</div><div class="lbl">Concerns</div></div>
   </div>
 
   <div class="card">
@@ -2775,11 +2774,11 @@ function myTeamPersonSectionsHtml(e, cycle, isHR){
       <div class="pf"><b>RECOMMENDATION</b>
         <textarea data-autosave-id="dsRec_${p.id}" data-entry-recommendation="${p.id}" data-dept="${escapeHtml(dept)}" rows="3" placeholder="What should happen next for ${escapeHtml(p.name)}?">${escapeHtml(e.recommendation)}</textarea>
       </div>`;
-    parts.push(myTeamSectionHtml('hr_'+p.id, 'HR summary & recommendation', 'done', (e.reportPublished?'published':'draft')+' · expand', body));
+    parts.push(myTeamSectionHtml('hr_'+p.id, 'HR summary & recommendation', 'done', (e.reportPublished?'✓ published':'draft')+' · expand', body));
   } else if(e.reportPublished){
     const statusLabel = {no:'No action', monitor:'Monitor', yes:'PIP'}[e.status] || 'No action';
     const body = `<div class="pf"><b>RECOMMENDATION</b><p>${escapeHtml(e.recommendation)||'No concerns flagged this cycle.'}</p></div><div class="pkv"><div><b>STATUS</b>${escapeHtml(statusLabel)}</div></div>`;
-    parts.push(myTeamSectionHtml('hr_'+p.id, 'HR summary & recommendation', 'done', 'published · expand', body));
+    parts.push(myTeamSectionHtml('hr_'+p.id, 'HR summary & recommendation', 'done', '✓ published · expand', body));
   } else {
     parts.push(myTeamSectionHtml('hr_'+p.id, 'HR summary & recommendation', 'pending', 'not published yet', ''));
   }
@@ -2864,7 +2863,7 @@ function viewMyTeam(cycle, person){
   <div class="grid grid-3">
     <div class="stat ${teamAvgCls}"><div class="num">${teamAvg!==null?teamAvg.toFixed(1):'—'}</div><div class="lbl">Team average</div></div>
     <div class="stat ${completionCls}"><div class="num">${completionPct}%</div><div class="lbl">Completion</div><div class="small muted" style="margin-top:2px;">${escapeHtml(completionCaption)}</div></div>
-    <div class="stat ${concernsCount>0?'bad':''}"><div class="num">${concernsCount}</div><div class="lbl">Concerns</div><div class="small muted" style="margin-top:2px;">${escapeHtml(concernCaption)}</div></div>
+    <div class="stat ${concernsCount>0?'bad':''}" style="margin-left:8px;"><div class="num">${concernsCount}</div><div class="lbl">Concerns</div><div class="small muted" style="margin-top:2px;">${escapeHtml(concernCaption)}</div></div>
   </div>
 
   <div class="panel"><h3 class="ph">${isHead ? 'DEPARTMENT HEAD' : 'MANAGER'}</h3>${myTeamPersonRowHtml(selfEntry, cycle, isHR)}</div>
@@ -3248,7 +3247,7 @@ function viewMyReviews(cycle, person){
   <div class="card">
     <h3 class="section-h">My reviews</h3>
     ${reviewCycles.length===0?'<div class="empty">No reviews on file yet.</div>':`
-    <table><thead><tr><th>Cycle</th><th>Self-review</th><th>Manager's review</th><th>Combined</th><th>Rating</th></tr></thead><tbody>
+    <table><thead><tr><th>Cycle</th><th>Self-review</th><th>Manager's review</th><th>Final Report</th><th>Rating</th></tr></thead><tbody>
     ${reviewCycles.map(c=>{
       const sr = findReview('self', c.id, x=>x.employeeId===person.id);
       const mr = findReview('manager', c.id, x=>x.employeeId===person.id);
@@ -3301,6 +3300,7 @@ function buildCombinedPrintable(cycle, employee){
   const selfRev = findReview('self',cycle.id,x=>x.employeeId===employee.id);
   const mgrRev = findReview('manager',cycle.id,x=>x.employeeId===employee.id);
   const mgr = employee.managerId ? getPerson(employee.managerId) : null;
+  const followUps = (DB.followUps||[]).filter(f=>f.personId===employee.id).sort((a,b)=>(a.checkpointDate||'').localeCompare(b.checkpointDate||''));
   const ratingsHtml = mgrRev ? MANAGER_RATINGS.map(f=>`<tr><td>${f.label}</td><td><b>${mgrRev.ratings[f.key]}</b>/5 — ${RATING_LABELS[mgrRev.ratings[f.key]]}</td></tr>`).join('') : '';
   return `
   <html><head><meta charset="UTF-8"><title>Review — ${employee.name}</title>
@@ -3324,6 +3324,8 @@ function buildCombinedPrintable(cycle, employee){
 
   ${selfRev ? `<h2>Self-review</h2>
   ${SELF_FIELDS.map(f=>`<div class="block"><b>${f.label}</b><p>${escapeHtml(selfRev.answers[f.key])||'—'}</p></div>`).join('')}` : ''}
+
+  ${followUps.length ? `<h2>Follow-ups from manager</h2>${followUps.map(f=>`<div class="block"><b>${escapeHtml(f.commitment||'Check-in')} — ${f.status==='done'?'Done':'Open'}</b><p>Check-in date: ${fmtDate(f.checkpointDate)}</p></div>`).join('')}` : ''}
 
   <div class="meta" style="margin-top:30px;">Generated by Plei Performance on ${new Date().toLocaleDateString('en-US')}</div>
   </body></html>`;
