@@ -560,6 +560,7 @@ function startReviewListeners(email, isHR){
     // Follow-ups: only the manager who owns the commitment can read it (not the employee it's
     // about — this mirrors PIP/monitor status already being manager+HR-only in deptSummaries).
     reviewListenerUnsubs.push(fdb.collection('followUps').where('managerEmail','==',email).onSnapshot(snap=>{ DB.followUps = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
+    reviewListenerUnsubs.push(fdb.collection('deptSummaries').where('recipientIds','array-contains',myLocalId(email)).onSnapshot(snap=>{ DB.deptSummaries = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     // Coffee chats: a person can read their own pairing (either side of it).
     let coffeeAsA = [], coffeeAsB = [];
     reviewListenerUnsubs.push(fdb.collection('coffeeChats').where('personAEmail','==',email).onSnapshot(snap=>{ coffeeAsA = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); DB.coffeeChats = mergeById(coffeeAsA, coffeeAsB); if(DB_LOADED) render(); }, e=>console.error(e)));
@@ -2823,6 +2824,7 @@ function viewMyTeam(cycle, person){
   const selfReport = selfGroup ? deptReportFor(selfGroup) : {id:null, people:{}, status:'draft'};
   const selfEntry = deptReportEntryFor(person, cycle, selfReport);
   const isHR = person.role==='hr';
+  const hrReports = (DB.deptSummaries||[]).filter(s=>s.status==='published' && Array.isArray(s.recipientIds) && s.recipientIds.includes(person.id));
 
   const avgPool = [selfEntry.score, ...entries.map(e=>e.score)].filter(v=>v!==null);
   const teamAvg = avgPool.length ? avg(avgPool) : null;
@@ -2867,6 +2869,14 @@ function viewMyTeam(cycle, person){
   </div>
 
   <div class="panel"><h3 class="ph">${isHead ? 'DEPARTMENT HEAD' : 'MANAGER'}</h3>${myTeamPersonRowHtml(selfEntry, cycle, isHR)}</div>
+
+  ${hrReports.length ? `<div class="panel">
+    <h3 class="ph">HR REPORT<span class="hint">published by HR</span></h3>
+    ${hrReports.map(r=>`<div class="prow" style="cursor:default;flex-direction:column;align-items:flex-start;gap:6px;">
+      <div class="who" style="width:100%;"><b>${escapeHtml(r.department)}</b><span>${r.publishedByName?'Published by '+escapeHtml(r.publishedByName)+' · ':''}${fmtDate((r.publishedAt||'').slice(0,10))}</span></div>
+      ${r.summary ? `<div class="small" style="white-space:pre-wrap;">${escapeHtml(r.summary)}</div>` : '<div class="small muted">No summary written.</div>'}
+    </div>`).join('')}
+  </div>` : ''}
 
   <div class="panel">
     <h3 class="ph">MY TEAM<span class="hint">click a person to expand their full record</span></h3>
@@ -3497,36 +3507,67 @@ function bindViewEvents(role, nav, cycle, person){
     const teamScore = scored.length ? avg(scored.map(e=>e.score)) : null;
     printHtml(buildDeptReportPrintable(dept, cycle, report, entries, teamScore, managerScore, head?head.name:'—'));
   });
-  document.getElementById('dsPublishBtn')?.addEventListener('click', async ()=>{
+  document.getElementById('dsPublishBtn')?.addEventListener('click', ()=>{
     const btn = document.getElementById('dsPublishBtn');
     const dept = btn.dataset.dept;
     const head = deptHeadFor(dept);
-    if(!head || !head.email){ alert('No department head with an email on file for ' + dept + ' — set one on the org chart before publishing.'); return; }
-    if(!confirm(`Publish the ${dept} department report to ${head.name} (${head.email})?`)) return;
-    btn.disabled = true; const originalLabel = btn.textContent; btn.textContent = 'Publishing...';
-    try{
-      const report = deptReportFor(dept);
-      const entries = deptReportEntries(dept, cycle, report);
-      const headMgrRev = findReview('manager', cycle.id, x=>x.employeeId===head.id && x.status==='submitted');
-      const managerScore = headMgrRev ? ratingAvgOfReview(headMgrRev) : null;
-      const scored = entries.filter(e=>e.score!==null);
-      const teamScore = scored.length ? avg(scored.map(e=>e.score)) : null;
-      const me = sessionPerson();
-      await sendGmail({
-        to: head.email,
-        subject: 'Department Report — ' + dept + ' (' + cycle.label + ')',
-        bodyHtml: deptReportEmailHtml(dept, cycle, report, entries, teamScore, managerScore, head.name)
-      });
-      await fdb.collection('deptSummaries').doc(deptReportIdFor(dept)).set({
-        department: dept, status: 'published', publishedAt: new Date().toISOString(), publishedByName: me?me.name:''
-      }, {merge:true});
-      toast('Published to ' + head.name);
-      render();
-    }catch(e){
-      console.error('Publish department report failed:', e);
-      alert('Could not publish: ' + e.message);
-      btn.disabled = false; btn.textContent = originalLabel;
-    }
+    const report = deptReportFor(dept);
+    const entries = deptReportEntries(dept, cycle, report);
+    const candidateIds = new Set();
+    if(head) candidateIds.add(head.id);
+    entries.forEach(e=>{ if(e.person && e.person.managerId) candidateIds.add(e.person.managerId); });
+    const candidates = Array.from(candidateIds).map(id=>getPerson(id)).filter(Boolean).filter(p=>p.email);
+    if(!candidates.length){ alert('No manager with an email on file for ' + dept + ' — set one on the org chart before publishing.'); return; }
+    const rowsHtml = candidates.map(p=>`<label style="display:flex;align-items:center;gap:8px;padding:6px 0;"><input type="checkbox" class="pubRecipient" value="${escapeHtml(p.id)}" ${head && p.id===head.id?'checked':''}><span>${escapeHtml(p.name)} <span class="muted small">(${escapeHtml(p.email)})</span></span></label>`).join('');
+    const modalHtml = `
+  <div class="modal-bg no-print" id="publishModalBg">
+    <div class="modal">
+      <span class="close-x" id="closePublishModal">✕</span>
+      <h3>Publish ${escapeHtml(dept)} department report</h3>
+      <p class="muted small" style="margin:4px 0 12px;">Choose who should receive this report by email and see it in My Team.</p>
+      <div>${rowsHtml}</div>
+      <div class="row" style="justify-content:flex-end;gap:8px;margin-top:16px;">
+        <button class="btn ghost sm" id="cancelPublishModal">Cancel</button>
+        <button class="btn" id="confirmPublishBtn">Send</button>
+      </div>
+    </div>
+  </div>`;
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    const closePublishModal = ()=>{ document.getElementById('publishModalBg')?.remove(); };
+    document.getElementById('closePublishModal').addEventListener('click', closePublishModal);
+    document.getElementById('cancelPublishModal').addEventListener('click', closePublishModal);
+    document.getElementById('confirmPublishBtn').addEventListener('click', async ()=>{
+      const ids = Array.from(document.querySelectorAll('.pubRecipient:checked')).map(el=>el.value);
+      if(!ids.length){ alert('Select at least one recipient.'); return; }
+      const recipients = ids.map(id=>getPerson(id)).filter(Boolean);
+      const confirmBtn = document.getElementById('confirmPublishBtn');
+      confirmBtn.disabled = true; confirmBtn.textContent = 'Sending...';
+      try{
+        const headMgrRev = head ? findReview('manager', cycle.id, x=>x.employeeId===head.id && x.status==='submitted') : null;
+        const managerScore = headMgrRev ? ratingAvgOfReview(headMgrRev) : null;
+        const scored = entries.filter(e=>e.score!=null);
+        const teamScore = scored.length ? avg(scored.map(e=>e.score)) : null;
+        const me = sessionPerson();
+        for(const r of recipients){
+          await sendGmail({
+            to: r.email,
+            subject: 'Department Report — ' + dept + ' (' + cycle.label + ')',
+            bodyHtml: deptReportEmailHtml(dept, cycle, report, entries, teamScore, managerScore, r.name)
+          });
+        }
+        await fdb.collection('deptSummaries').doc(deptReportIdFor(dept)).set({
+          department: dept, status: 'published', publishedAt: new Date().toISOString(), publishedByName: me?me.name:'',
+          recipientIds: ids, recipients: recipients.map(r=>({id:r.id, name:r.name, email:r.email}))
+        }, {merge:true});
+        closePublishModal();
+        toast('Published to ' + recipients.map(r=>r.name).join(', '));
+        render();
+      }catch(e){
+        console.error('Publish department report failed:', e);
+        alert('Could not publish: ' + e.message);
+        confirmBtn.disabled = false; confirmBtn.textContent = 'Send';
+      }
+    });
   });
 
   // Dashboard (consolidated) — Concerns, Departments, People search/detail, Pending, Suggestion inbox.
