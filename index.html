@@ -2811,8 +2811,6 @@ function myTeamPersonRowHtml(e, cycle, isHR){
 function viewMyTeam(cycle, person){
   const headGroup = DEPT_SUMMARY_GROUPS.find(g=>(deptHeadFor(g)||{}).id===person.id);
   const isHead = !!headGroup;
-  const report = isHead ? deptReportFor(headGroup) : null;
-
   const members = isHead
     ? Array.from(new Map([...summaryGroupMembers(headGroup).filter(p=>p.id!==person.id), ...directReports(person.id)].map(p=>[p.id,p])).values())
     : directReports(person.id);
@@ -2823,10 +2821,12 @@ function viewMyTeam(cycle, person){
     return deptReportEntryFor(p, cycle, r);
   });
 
-  const headEntry = isHead ? deptReportEntryFor(person, cycle, report) : null;
+  const selfGroup = isHead ? headGroup : deptGroupFor(person.id);
+  const selfReport = selfGroup ? deptReportFor(selfGroup) : {id:null, people:{}, status:'draft'};
+  const selfEntry = deptReportEntryFor(person, cycle, selfReport);
   const isHR = person.role==='hr';
 
-  const avgPool = (isHead ? [headEntry.score, ...entries.map(e=>e.score)] : entries.map(e=>e.score)).filter(v=>v!==null);
+  const avgPool = [selfEntry.score, ...entries.map(e=>e.score)].filter(v=>v!==null);
   const teamAvg = avgPool.length ? avg(avgPool) : null;
   const teamAvgCls = teamAvg===null ? '' : (teamAvg>=4.0 ? 'ok' : (teamAvg<3.0 ? 'bad' : 'warn'));
 
@@ -2840,7 +2840,7 @@ function viewMyTeam(cycle, person){
 
   const myFollowUps = (DB.followUps||[]).filter(f=>f.managerId===person.id).sort((a,b)=>(a.checkpointDate||'').localeCompare(b.checkpointDate||''));
   const overdueFollowUps = myFollowUps.filter(f=>f.status!=='done' && f.checkpointDate && f.checkpointDate<today);
-  const flaggedEntries = (isHead ? [headEntry, ...entries] : entries).filter(e=>e.status==='monitor' || e.status==='yes');
+  const flaggedEntries = [selfEntry, ...entries].filter(e=>e.status==='monitor' || e.status==='yes');
   const concernsCount = flaggedEntries.length + overdueFollowUps.length;
   const concernCaption = flaggedEntries.length
     ? (({monitor:'Monitor',yes:'PIP'}[flaggedEntries[0].status]) + ' · ' + flaggedEntries[0].person.name)
@@ -2868,7 +2868,7 @@ function viewMyTeam(cycle, person){
     <div class="stat ${concernsCount>0?'bad':''}"><div class="num">${concernsCount}</div><div class="lbl">Concerns</div><div class="small muted" style="margin-top:2px;">${escapeHtml(concernCaption)}</div></div>
   </div>
 
-  ${isHead ? `<div class="panel"><h3 class="ph">DEPARTMENT HEAD</h3>${myTeamPersonRowHtml(headEntry, cycle, isHR)}</div>` : ''}
+  <div class="panel"><h3 class="ph">${isHead ? 'DEPARTMENT HEAD' : 'MANAGER'}</h3>${myTeamPersonRowHtml(selfEntry, cycle, isHR)}</div>
 
   <div class="panel">
     <h3 class="ph">MY TEAM<span class="hint">click a person to expand their full record</span></h3>
