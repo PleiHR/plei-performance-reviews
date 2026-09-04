@@ -1508,7 +1508,7 @@ function viewDashboard(cycle, person){
     <div style="padding:10px 16px;border-bottom:1px solid #f0f3f1;">
       <input type="text" id="dashPeopleSearch" data-autosave-id="dashPeopleSearch" placeholder="Search anyone at Plei" value="${escapeHtml(STATE.dashboardPeopleSearch||'')}" style="width:100%;">
     </div>
-    ${DB.people.filter(p=>!p.deactivated).filter(p=>!STATE.dashboardPeopleSearch || p.name.toLowerCase().includes(STATE.dashboardPeopleSearch.toLowerCase())).sort((a,b)=>a.name.localeCompare(b.name)).map(p=>dashboardPersonRowHtml(dashboardEntryFor(p.id, cycle), cycle)).join('') || '<div class="empty" style="padding:16px;">No matches.</div>'}
+    ${!STATE.dashboardPeopleSearch ? '<div class="empty" style="padding:16px;">Start typing a name to search.</div>' : (DB.people.filter(p=>!p.deactivated).filter(p=>p.name.toLowerCase().includes(STATE.dashboardPeopleSearch.toLowerCase())).sort((a,b)=>a.name.localeCompare(b.name)).slice(0,20).map(p=>dashboardPersonRowHtml(dashboardEntryFor(p.id, cycle), cycle)).join('') || '<div class="empty" style="padding:16px;">No matches.</div>')}
   </div>
 
   ${dashboardSuggestionPanelHtml()}`;
@@ -2685,7 +2685,7 @@ function myTeamPersonSectionsHtml(e, cycle, isHR){
   if(e.selfDone){
     const selfRev = findReview('self', cycle.id, x=>x.employeeId===p.id);
     const body = SELF_FIELDS.map(f=>selfRev.answers[f.key] ? `<div class="pf"><b>${escapeHtml(f.label.toUpperCase())}</b><p>${escapeHtml(selfRev.answers[f.key])}</p></div>` : '').join('') || '<div class="pf"><p>No answers on file.</p></div>';
-    parts.push(myTeamSectionHtml('self_'+p.id, 'Self-review · '+p.name.split(' ')[0], 'done', 'submitted '+fmtDate(selfRev.submittedAt.slice(0,10))+' · expand', body));
+    parts.push(myTeamSectionHtml('self_'+p.id, 'Self-review · '+p.name.split(' ')[0], 'done', 'submitted '+fmtDate(selfRev.submittedAt.slice(0,10))+'', body));
   } else {
     parts.push(myTeamSectionHtml('self_'+p.id, 'Self-review · '+p.name.split(' ')[0], 'pending', 'not submitted yet', ''));
   }
@@ -2696,7 +2696,7 @@ function myTeamPersonSectionsHtml(e, cycle, isHR){
     const mgrRev = findReview('manager', cycle.id, x=>x.employeeId===p.id && x.status==='submitted');
     const dims = MANAGER_RATINGS.map(f=>`<span>${escapeHtml(f.label)} <b>${mgrRev.ratings&&mgrRev.ratings[f.key]!==undefined?mgrRev.ratings[f.key]:'—'}</b></span>`).join('');
     const body = `<div class="pdims">${dims}</div>` + MANAGER_FIELDS.map(f=>mgrRev.answers[f.key] ? `<div class="pf"><b>${escapeHtml(f.label.toUpperCase())}</b><p>${escapeHtml(mgrRev.answers[f.key])}</p></div>` : '').join('');
-    parts.push(myTeamSectionHtml('mgr_'+p.id, 'Manager review · '+escapeHtml(e.reviewerOfRecord), 'done', 'submitted '+fmtDate(mgrRev.submittedAt.slice(0,10))+' · expand', body));
+    parts.push(myTeamSectionHtml('mgr_'+p.id, 'Manager review · '+escapeHtml(e.reviewerOfRecord), 'done', 'submitted '+fmtDate(mgrRev.submittedAt.slice(0,10))+'', body));
   } else {
     parts.push(myTeamSectionHtml('mgr_'+p.id, 'Manager review', 'pending', 'not submitted yet', ''));
   }
@@ -2724,11 +2724,11 @@ function myTeamPersonSectionsHtml(e, cycle, isHR){
           </select>
         </div>
         <div style="padding:10px 14px 12px;"><span class="actbtn" data-publish-summary="${p.id}">${summary&&summary.published?'Update & send':'Send summary'}</span></div>`;
-      parts.push(myTeamSectionHtml('up_'+p.id, 'Team feedback · upward', 'done', (summary&&summary.published?'sent · ':'draft · ')+count+' collected · expand', body));
+      parts.push(myTeamSectionHtml('up_'+p.id, 'Team feedback · upward', 'done', (summary&&summary.published?'sent · ':'draft · ')+count+' collected', body));
     } else if(summary && summary.published){
       const body = `<div class="pdims"><span>Average <b>${e.upwardScore!==null?e.upwardScore.toFixed(1):'—'}</b></span><span>Responses <b>${summary.responseCount||0}</b></span></div>
         <div class="pf"><b>THEMES</b><p>${escapeHtml(summary.themes)||'No themes recorded.'}</p></div>`;
-      parts.push(myTeamSectionHtml('up_'+p.id, 'Team feedback · upward', 'done', (summary.responseCount||0)+' responses · expand', body));
+      parts.push(myTeamSectionHtml('up_'+p.id, 'Team feedback · upward', 'done', (summary.responseCount||0)+' responses', body));
     } else {
       parts.push(myTeamSectionHtml('up_'+p.id, 'Team feedback · upward', 'pending', count+' collected, not published yet', ''));
     }
@@ -2750,11 +2750,11 @@ function myTeamPersonSectionsHtml(e, cycle, isHR){
         <textarea data-autosave-id="cwfSummary_${p.id}" data-peer-summary-themes="${p.id}" rows="4">${escapeHtml(themesVal)}</textarea>
       </div>
       <div style="padding:0 14px 12px;"><span class="actbtn" data-publish-peer-summary="${p.id}">${peerSummary&&peerSummary.published?'Update published summary':'Publish summary'}</span></div>`;
-    parts.push(myTeamSectionHtml('cwf_'+p.id, 'Company wide feedback', 'done', rawList.length+' pieces · expand', body));
+    parts.push(myTeamSectionHtml('cwf_'+p.id, 'Company wide feedback', 'done', rawList.length+' pieces', body));
   } else if(peerSummary && peerSummary.published){
     const avgV = myTeamRatingAvg(peerSummary);
     const body = `<div class="pf"><b>HR PUBLISHED SUMMARY</b><p>${escapeHtml(peerSummary.themes)||'No summary text.'}</p></div>`;
-    parts.push(myTeamSectionHtml('cwf_'+p.id, 'Company wide feedback', 'done', (peerSummary.responseCount||0)+' pieces'+(avgV!==null?' · avg '+avgV.toFixed(1):'')+' · expand', body));
+    parts.push(myTeamSectionHtml('cwf_'+p.id, 'Company wide feedback', 'done', (peerSummary.responseCount||0)+' pieces'+(avgV!==null?' · avg '+avgV.toFixed(1):'')+'', body));
   } else {
     parts.push(myTeamSectionHtml('cwf_'+p.id, 'Company wide feedback', 'pending', 'nothing published yet', ''));
   }
@@ -2774,11 +2774,11 @@ function myTeamPersonSectionsHtml(e, cycle, isHR){
       <div class="pf"><b>RECOMMENDATION</b>
         <textarea data-autosave-id="dsRec_${p.id}" data-entry-recommendation="${p.id}" data-dept="${escapeHtml(dept)}" rows="3" placeholder="What should happen next for ${escapeHtml(p.name)}?">${escapeHtml(e.recommendation)}</textarea>
       </div>`;
-    parts.push(myTeamSectionHtml('hr_'+p.id, 'HR summary & recommendation', 'done', (e.reportPublished?'✓ published':'draft')+' · expand', body));
+    parts.push(myTeamSectionHtml('hr_'+p.id, 'HR summary & recommendation', 'done', (e.reportPublished?'✓ published':'draft')+'', body));
   } else if(e.reportPublished){
     const statusLabel = {no:'No action', monitor:'Monitor', yes:'PIP'}[e.status] || 'No action';
     const body = `<div class="pf"><b>RECOMMENDATION</b><p>${escapeHtml(e.recommendation)||'No concerns flagged this cycle.'}</p></div><div class="pkv"><div><b>STATUS</b>${escapeHtml(statusLabel)}</div></div>`;
-    parts.push(myTeamSectionHtml('hr_'+p.id, 'HR summary & recommendation', 'done', '✓ published · expand', body));
+    parts.push(myTeamSectionHtml('hr_'+p.id, 'HR summary & recommendation', 'done', '✓ published', body));
   } else {
     parts.push(myTeamSectionHtml('hr_'+p.id, 'HR summary & recommendation', 'pending', 'not published yet', ''));
   }
