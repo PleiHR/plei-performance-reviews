@@ -2032,7 +2032,11 @@ function viewTodos(cycle, person){
   rows1.push(todoRowHtml({done:gaveSuggestion, label:'Drop a suggestion in the box', actionLabel: gaveSuggestion?null:'Start', actionAttr:'data-nav="suggestform"'}));
 
   const buckets = [];
-  buckets.push({header: cycle.label.toUpperCase(), hint: `due ${fmtShort(cycle.endDate)}`, rowsHtml: rows1.join('')});
+  // Cycle to-dos only show while this cycle is open — they disappear once HR closes it, and
+  // reopen automatically for the next cycle (a fresh page load defaults to whichever cycle is open).
+  if(cycle.status === 'open'){
+    buckets.push({header: cycle.label.toUpperCase(), hint: `due ${fmtShort(cycle.endDate)}`, rowsHtml: rows1.join('')});
+  }
 
   // Follow-ups due (managers only): year-round commitments registry (PIP checkpoints, monitor
   // check-ins, workload reviews). Genuinely new in this redesign — the followUps collection
