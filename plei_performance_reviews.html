@@ -1139,7 +1139,7 @@ function currentManagerReviewFor(person, cycleId){
   if(!curMgr) return {rev, stale:false, staleRev:null};
   const revMgrId = rev.managerId || null;
   const isStale = revMgrId ? revMgrId !== curMgr.id : (rev.managerEmail ? rev.managerEmail !== curMgr.email : false);
-  return isStale ? {rev:null, stale:true, staleRev:rev} : {rev, stale:false, staleRev:null};
+  return {rev, stale:isStale, staleRev:isStale?rev:null};
 }
 
 function escapeHtml(str){
@@ -2433,13 +2433,12 @@ function deptReportEntryFor(person, cycle, report){
   const archivedReviewer = (mgrStale && mgrStaleRev.managerId && getPerson(mgrStaleRev.managerId)) ? getPerson(mgrStaleRev.managerId).name : 'the previous manager';
   const o1 = oneOnOneFor(person.id, cycle.id);
   let oneOnOneOutcome;
-  if(mgrStale) oneOnOneOutcome = 'Re-review pending after reassignment.';
-  else if(!mgrDone) oneOnOneOutcome = 'Manager review not submitted yet.';
+  if(!mgrDone) oneOnOneOutcome = 'Manager review not submitted yet.';
   else if(!o1 || o1.status==='pending') oneOnOneOutcome = 'Not scheduled yet.';
   else if(o1.status==='scheduled') oneOnOneOutcome = 'Scheduled for ' + fmtDateTime(o1.scheduledAt) + '.';
   else oneOnOneOutcome = 'Completed ' + fmtDate((o1.completedAt||'').slice(0,10)) + '.';
-  const notable = mgrStale || status!=='no' || (score!==null && score<3.5) || !!recommendation.trim();
-  const reviewerOfRecord = person.managerId ? (getPerson(person.managerId)?getPerson(person.managerId).name:'—') : '—';
+  const notable = status!=='no' || (score!==null && score<3.5) || !!recommendation.trim();
+  const reviewerOfRecord = mgrRev && mgrRev.managerId ? (getPerson(mgrRev.managerId)?getPerson(mgrRev.managerId).name:'—') : (person.managerId ? (getPerson(person.managerId)?getPerson(person.managerId).name:'—') : '—');
   return { person, reviewerOfRecord, selfDone, mgrDone, score, status, recommendation, inTheirWords, managersAssessment, oneOnOneOutcome, notable, mgrStale, archivedAssessment, archivedReviewer, upwardScore, upwardSummary, reportPublished };
 }
 function deptReportEntries(dept, cycle, report){
