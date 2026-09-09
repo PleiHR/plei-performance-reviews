@@ -2689,7 +2689,7 @@ function myTeamSectionHtml(key, label, state, meta, bodyHtml){
 function myTeamTimelineHtml(e, cycle){
   const p = e.person;
   const selfRev = e.selfDone ? findReview('self', cycle.id, x=>x.employeeId===p.id) : null;
-  const mgrRev = (e.mgrDone && !e.mgrStale) ? findReview('manager', cycle.id, x=>x.employeeId===p.id && x.status==='submitted') : null;
+  const mgrRev = e.mgrDone ? findReview('manager', cycle.id, x=>x.employeeId===p.id && x.status==='submitted') : null;
   const o1 = oneOnOneFor(p.id, cycle.id);
   const items = [];
   items.push(selfRev ? {label:'Self-review', val:fmtDateTime(selfRev.submittedAt), miss:false} : {label:'Self-review', val:'not yet', miss:true});
@@ -2712,9 +2712,7 @@ function myTeamPersonSectionsHtml(e, cycle, isHR){
     parts.push(myTeamSectionHtml('self_'+p.id, 'Self-review · '+p.name.split(' ')[0], 'pending', 'not submitted yet', ''));
   }
 
-  if(e.mgrStale){
-    parts.push(myTeamSectionHtml('mgr_'+p.id, 'Manager review', 'pending', 're-review pending after reassignment', ''));
-  } else if(e.mgrDone){
+  if(e.mgrDone){
     const mgrRev = findReview('manager', cycle.id, x=>x.employeeId===p.id && x.status==='submitted');
     const dims = MANAGER_RATINGS.map(f=>`<span>${escapeHtml(f.label)} <b>${mgrRev.ratings&&mgrRev.ratings[f.key]!==undefined?mgrRev.ratings[f.key]:'—'}</b></span>`).join('');
     const body = `<div class="pdims">${dims}</div>` + MANAGER_FIELDS.map(f=>mgrRev.answers[f.key] ? `<div class="pf"><b>${escapeHtml(f.label.toUpperCase())}</b><p>${escapeHtml(mgrRev.answers[f.key])}</p></div>` : '').join('');
