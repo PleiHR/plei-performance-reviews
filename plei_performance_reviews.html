@@ -273,21 +273,21 @@ function navGroupHTML(label, key, list){
 }
 
 /* ============================= REVIEW PROGRAM RULES ============================= */
-const ANONYMITY_MIN = 3; // soft heads-up threshold only — HR can publish a summary at any response count; below this, a non-blocking caution is shown about identifiability
+const ANONYMITY_MIN = 3; // soft heads-up threshold only · HR can publish a summary at any response count; below this, a non-blocking caution is shown about identifiability
 const HOW_REVIEWS_WORK = [
-  {type:'Self-review', anon:false, who:'Named — you write it, your manager and HR can read it.',
+  {type:'Self-review', anon:false, who:'Named, you write it, your manager and HR can read it.',
    detail:'You reflect on your own performance. Your manager sees it before writing their review, and HR can see it for calibration.'},
-  {type:'Manager review', anon:false, who:'Named — your manager writes it, you and HR can read it.',
+  {type:'Manager review', anon:false, who:'Named, your manager writes it, you and HR can read it.',
    detail:'Your manager evaluates your performance. You receive the combined report (your self-review + their review) to discuss in your 1:1.'},
-  {type:'Company wide feedback', anon:true, who:'Anonymous — HR reads the raw feedback first; the person and their manager only ever see a summary HR writes, never the original quotes.',
-   detail:`Anyone at Plei can leave feedback about any colleague, anytime — entirely optional, no nomination or request needed. Use it to share something positive, or to flag a concern. Raw feedback goes to HR only, as soon as it's submitted. HR reviews it and decides when to publish a summary to that person and their manager — never the raw quotes, so no one can guess who wrote what.`},
-  {type:'Upward review', anon:true, who:'Anonymous — HR reviews it first; raw responses are never shared with the manager.',
-   detail:`You review your own manager. HR reads all the raw feedback as soon as it's submitted, analyzes it, and writes an overall summary and evaluation. Nothing is sent automatically: HR decides when to publish, and chooses who receives it — the manager, their manager (skip-level), or both. With very few responses, HR may choose to deliver themes verbally instead of publishing them in the app, to protect anonymity.`},
-  {type:'1:1 debrief', anon:false, who:'Named — a required step for every manager review.',
+  {type:'Company wide feedback', anon:true, who:'Anonymous · HR reads the raw feedback first; the person and their manager only ever see a summary HR writes, never the original quotes.',
+   detail:`Anyone at Plei can leave feedback about any colleague, anytime, entirely optional, no nomination or request needed. Use it to share something positive, or to flag a concern. Raw feedback goes to HR only, as soon as it's submitted. HR reviews it and decides when to publish a summary to that person and their manager, never the raw quotes, so no one can guess who wrote what.`},
+  {type:'Upward review', anon:true, who:'Anonymous · HR reviews it first; raw responses are never shared with the manager.',
+   detail:`You review your own manager. HR reads all the raw feedback as soon as it's submitted, analyzes it, and writes an overall summary and evaluation. Nothing is sent automatically: HR decides when to publish, and chooses who receives it, the manager, their manager (skip-level), or both. With very few responses, HR may choose to deliver themes verbally instead of publishing them in the app, to protect anonymity.`},
+  {type:'1:1 debrief', anon:false, who:'Named, a required step for every manager review.',
    detail:'As soon as a manager submits a direct report\'s review, scheduling a 1:1 to deliver it becomes a required task. It creates a real Google Calendar invite for both people, and the manager confirms once the conversation has happened. HR can see the status of every 1:1 across the company from 1:1 Tracking.'},
 ];
 function howReviewsWorkBlurb(){
-  return `<div class="hrw-note"><b>${icon('shield',14)} How reviews work:</b> Self and manager reviews are named. Company wide feedback and upward reviews are anonymous — HR reads all the raw responses as soon as they're submitted, and shares only a summary — see <a href="#" data-nav="howreviews">How reviews work</a> for the full breakdown.</div>`;
+  return `<div class="hrw-note"><b>${icon('shield',14)} How reviews work:</b> Self and manager reviews are named. Company wide feedback and upward reviews are anonymous · HR reads all the raw responses as soon as they're submitted, and shares only a summary, see <a href="#" data-nav="howreviews">How reviews work</a> for the full breakdown.</div>`;
 }
 
 
@@ -344,7 +344,7 @@ function uid(p){ return p + '_' + Math.random().toString(36).slice(2,9); }
 /* Local-only draft autosave: protects in-progress anonymous/long-form answers from
    being wiped if a Firestore listener triggers a re-render while the tab was
    backgrounded (e.g. the user tabs away mid-review and comes back later).
-   Never leaves the browser — cleared automatically once the review is submitted. */
+   Never leaves the browser, cleared automatically once the review is submitted. */
 function draftKey(kind, cycleId, personId, extra){
   return 'plei_draft_' + kind + '_' + cycleId + '_' + personId + (extra?('_'+extra):'');
 }
@@ -359,7 +359,7 @@ function clearLocalDraft(key){
 }
 
 /* Generic debounced autosave, used by any "autosaving textarea" (Department Report's YOUR
-   SUMMARY / recommendation fields, Manager Reports' recommendation field, etc.) — saves to
+   SUMMARY / recommendation fields, Manager Reports' recommendation field, etc.), saves to
    Firestore ~900ms after the user stops typing rather than on every keystroke or a manual button.
    Firestore's onSnapshot listener re-renders the whole app on write, which would normally yank
    focus out of the textarea mid-edit; wireAutosaveTextarea + restoreAutosaveFocus below track
@@ -404,7 +404,7 @@ function restoreAutosaveFocus(){
 
 // Real Plei org chart, pulled from Rippling (Reports and Dashboards) on 2026-07-17.
 // role: 'hr' = full HR admin access · 'manager' = has direct reports · 'employee' = individual contributor.
-// Used only by the one-time "Seed real org data" bootstrap action below — not for local storage.
+// Used only by the one-time "Seed real org data" bootstrap action below, not for local storage.
 function seedOrgData(){
   const departments = ['Growth','Engineering','Customer Support','Marketing','HR','Product','Magic','Operations','Partnerships'];
 
@@ -451,7 +451,7 @@ function seedOrgData(){
     {id:'agustina', name:'Agus Caruso', email:'agustina@plei.com', role:'employee', department:'Customer Support', title:'Customer Support Specialist', managerId:'elizabeth'},
     {id:'maria', name:'Maria Beltran', email:'maria@plei.com', role:'employee', department:'Customer Support', title:'Customer Support Specialist', managerId:'elizabeth'},
   ];
-  // Nobody has logged in yet — only the HR admins are pre-activated so they can sign in and start sending invites.
+  // Nobody has logged in yet, only the HR admins are pre-activated so they can sign in and start sending invites.
   people.forEach(p=>{ p.invited = false; p.active = false; });
   ['priscila','elizabeth'].forEach(id=>{
     const p = people.find(x=>x.id===id);
@@ -464,12 +464,12 @@ function seedOrgData(){
     {id:'c2026mid', year:2026, type:'mid', label:'2026 · Mid-Year', startDate:'2026-07-01', endDate:'2026-07-31', status:'open'},
   ];
 
-  // No fabricated review content — real people start with a clean slate.
+  // No fabricated review content, real people start with a clean slate.
   return {departments, people, cycles, settings:{companyDomain:'plei.com'}};
 }
 
 // One-time HR bootstrap action: pushes the real org chart into Firestore. Safe to run more
-// than once (writes use merge:true) — only needed the first time the database is empty.
+// than once (writes use merge:true), only needed the first time the database is empty.
 async function seedFirestoreFromOrgData(){
   const data = seedOrgData();
   const batch1 = fdb.batch();
@@ -527,10 +527,10 @@ function startReviewListeners(email, isHR){
     reviewListenerUnsubs.push(fdb.collection('personFiles').onSnapshot(snap=>{ DB.personFiles = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('deptSummaries').onSnapshot(snap=>{ DB.deptSummaries = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     // Manager Reports' recommendation field is internal-only (never shown to the manager, never
-    // published) — HR-only, same access tier as deptSummaries/followUps above.
+    // published) · HR-only, same access tier as deptSummaries/followUps above.
     reviewListenerUnsubs.push(fdb.collection('managerReports').onSnapshot(snap=>{ DB.managerReports = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     // Redesign (Aug 2026): year-round follow-up commitments (PIP/monitor checkpoints, workload
-    // reviews) and monthly cross-department coffee-chat pairings — feed the To-Dos screen.
+    // reviews) and monthly cross-department coffee-chat pairings, feed the To-Dos screen.
     reviewListenerUnsubs.push(fdb.collection('followUps').onSnapshot(snap=>{ DB.followUps = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('coffeeChats').onSnapshot(snap=>{ DB.coffeeChats = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
   } else {
@@ -551,7 +551,7 @@ function startReviewListeners(email, isHR){
     reviewListenerUnsubs.push(fdb.collection('reviews_self').where('employeeEmail','==',email).onSnapshot(snap=>{ selfMine = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); recomputeSelfTeam(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('reviews_manager').where('employeeEmail','==',email).onSnapshot(snap=>{ mgrMine = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); recomputeMgrTeam(); }, e=>console.error(e)));
     // Team-scoped reads: fetch by CURRENT reporting relationship (DB.people, already scoped to my
-    // subtree via managerChain) rather than the managerEmail snapshot stored on each review — so a
+    // subtree via managerChain) rather than the managerEmail snapshot stored on each review, so a
     // review stays visible to whoever manages that person today, even across manager reassignments
     // and past cycles, not just the person who originally wrote it.
     const myTeamIds = Array.from(new Set(DB.people.filter(p=>p.id!==myId).map(p=>p.id)));
@@ -562,14 +562,14 @@ function startReviewListeners(email, isHR){
       const mgrSlot = mgrTeamChunks.length; mgrTeamChunks.push([]);
       reviewListenerUnsubs.push(fdb.collection('reviews_manager').where('employeeId','in',chunk).onSnapshot(snap=>{ mgrTeamChunks[mgrSlot] = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); recomputeMgrTeam(); }, e=>console.error(e)));
     }
-    // Raw company wide feedback content never reaches non-HR clients — only HR-published summaries do.
+    // Raw company wide feedback content never reaches non-HR clients, only HR-published summaries do.
     DB.reviews.peer = [];
     let peerSummaryAsTarget = [], peerSummaryAsManager = [];
     reviewListenerUnsubs.push(fdb.collection('peer_summaries').where('targetEmail','==',email).where('published','==',true).onSnapshot(snap=>{ peerSummaryAsTarget = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); DB.peerSummaries = mergeById(peerSummaryAsTarget, peerSummaryAsManager); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('peer_summaries').where('managerEmail','==',email).where('published','==',true).onSnapshot(snap=>{ peerSummaryAsManager = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); DB.peerSummaries = mergeById(peerSummaryAsTarget, peerSummaryAsManager); if(DB_LOADED) render(); }, e=>console.error(e)));
-    // Raw upward review content never reaches non-HR clients — only HR-published summaries do.
+    // Raw upward review content never reaches non-HR clients, only HR-published summaries do.
     DB.reviews.upward = [];
-    // Suggestions are HR-only — never loaded into non-HR clients, even for the person's own submission.
+    // Suggestions are HR-only, never loaded into non-HR clients, even for the person's own submission.
     // Suggestion AUTHORSHIP (who wrote one, not what it says) is scoped to the person's own email,
     // so the Kudos to-do can derive completion without exposing suggestion content.
     DB.suggestions = [];
@@ -582,7 +582,7 @@ function startReviewListeners(email, isHR){
     reviewListenerUnsubs.push(fdb.collection('oneonones').where('managerEmail','==',email).onSnapshot(snap=>{ o1AsManager = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); DB.oneOnOnes = mergeById(o1AsEmployee, o1AsManager); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('calendarSync').where('personEmail','==',email).onSnapshot(snap=>{ DB.calendarSync = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     // Follow-ups: only the manager who owns the commitment can read it (not the employee it's
-    // about — this mirrors PIP/monitor status already being manager+HR-only in deptSummaries).
+    // about, this mirrors PIP/monitor status already being manager+HR-only in deptSummaries).
     reviewListenerUnsubs.push(fdb.collection('followUps').where('managerEmail','==',email).onSnapshot(snap=>{ DB.followUps = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('deptSummaries').where('recipientIds','array-contains',myLocalId(email)).onSnapshot(snap=>{ DB.deptSummaries = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     // Coffee chats: a person can read their own pairing (either side of it).
@@ -590,7 +590,7 @@ function startReviewListeners(email, isHR){
     reviewListenerUnsubs.push(fdb.collection('coffeeChats').where('personAEmail','==',email).onSnapshot(snap=>{ coffeeAsA = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); DB.coffeeChats = mergeById(coffeeAsA, coffeeAsB); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('coffeeChats').where('personBEmail','==',email).onSnapshot(snap=>{ coffeeAsB = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); DB.coffeeChats = mergeById(coffeeAsA, coffeeAsB); if(DB_LOADED) render(); }, e=>console.error(e)));
   }
-  // Counters are numeric-only (never expose content or authorship) and readable by everyone signed in —
+  // Counters are numeric-only (never expose content or authorship) and readable by everyone signed in -
   // they're what the UI uses to know when the anonymity threshold has been crossed.
   reviewListenerUnsubs.push(fdb.collection('peer_counts').onSnapshot(snap=>{ DB.peerCounts = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
   reviewListenerUnsubs.push(fdb.collection('upward_counts').onSnapshot(snap=>{ DB.upwardCounts = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
@@ -605,12 +605,12 @@ function stopBaseListeners(){
   RAW_PEOPLE = [];
 }
 
-// Only HR can read the whole `people` collection now (it holds email/role/manager-chain — the
+// Only HR can read the whole `people` collection now (it holds email/role/manager-chain, the
 // sensitive fields). Everyone else's client only ever receives their own doc plus, if they manage
 // people, their own reporting subtree (via managerChain array-contains, enforced by the Firestore
-// rules — not just hidden in the UI). `directory` is a separate, intentionally minimal collection
+// rules, not just hidden in the UI). `directory` is a separate, intentionally minimal collection
 // (name/department/email/deactivated only, no role, no org chart) that every signed-in @plei.com
-// user can read — it's what powers "pick a colleague" pickers and showing your own manager's name,
+// user can read, it's what powers "pick a colleague" pickers and showing your own manager's name,
 // without handing every employee's browser the full HR-sensitive record for the whole company.
 function recomputePeopleView(){
   const dirMap = new Map((DB.directory||[]).map(d=>[d.id, d]));
@@ -637,7 +637,7 @@ function shuffleArray(arr){ for(let i=arr.length-1;i>0;i--){ const j=Math.floor(
 
 // Coffee chat: monthly, cross-department, no-repeat pairing. There is no backend cron in this
 // architecture (static SPA + Firestore only), so generation is triggered lazily by an HR session
-// loading the app — guarded by checking whether pairings already exist for the current month
+// loading the app, guarded by checking whether pairings already exist for the current month
 // before writing anything, so calling this more than once in a month is always a no-op.
 async function ensureCoffeeChatPairingsForMonth(){
   try{
@@ -755,7 +755,7 @@ function managersList(){ return DB.people.filter(p=>hasReports(p.id)); }
 // managerChain = list of ancestor manager IDs above a person ([directManagerId, skipManagerId, ...]).
 // It's what the Firestore rules check (myId() in resource.data.managerChain) to let a manager read
 // their own reporting subtree without opening up the whole `people` collection to everyone. Only HR
-// flows (editing org structure) ever call these — they rely on DB.people already holding the full
+// flows (editing org structure) ever call these, they rely on DB.people already holding the full
 // company list, which is only true when the signed-in user is HR.
 function computeChainFor(managerId){
   const chain = []; let cur = managerId; let guard = 0;
@@ -773,7 +773,7 @@ function applyChainRecursive(batch, personId, chain){
   DB.people.filter(x=>x.managerId===personId).forEach(r=>applyChainRecursive(batch, r.id, [personId, ...chain]));
 }
 // directory mirrors only the non-sensitive fields (no role, no managerId, no invited/active) so any
-// signed-in @plei.com user can read it — it's what powers "pick a colleague" pickers and showing
+// signed-in @plei.com user can read it, it's what powers "pick a colleague" pickers and showing
 // someone's own manager's name, without exposing the org chart or who's HR to the whole company.
 function directoryFieldsFor(p){ return {name:p.name, department:p.department, email:p.email, deactivated: !!p.deactivated, visibleInFeedback: !!p.visibleInFeedback}; }
 function initials(name){ return name.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase(); }
@@ -972,7 +972,7 @@ async function ensureOneOnOneTask(cycle, manager, employee){
 
 // Adds the cycle's start and deadline dates to the signed-in person's own Google Calendar.
 // silent=true (used automatically at login) only proceeds if a token can be obtained without
-// showing any prompt/popup — i.e. the person already granted Calendar access before, from
+// showing any prompt/popup, i.e. the person already granted Calendar access before, from
 // scheduling a 1:1 or from clicking "Add to Google Calendar" once. silent=false (used by that
 // manual button, always triggered by a real click) is allowed to show the Google consent popup.
 async function syncCycleCalendarForPerson(person, cycle, silent){
@@ -1006,7 +1006,7 @@ async function syncCycleCalendarForPerson(person, cycle, silent){
   });
   return 'synced';
 }
-// Runs once per page load, right after login. Only ever acts silently — if the person hasn't
+// Runs once per page load, right after login. Only ever acts silently, if the person hasn't
 // granted Calendar access before, this simply does nothing and the "Add to Google Calendar"
 // button in My Profile stays available for them to do it themselves, once.
 let cycleCalendarAutoSyncDone = false;
@@ -1025,12 +1025,12 @@ async function autoSyncCycleCalendarsOnLogin(){
 
 // Client-triggered reminder cadence (no backend/cron in this app): once per page load, right
 // after an HR person logs in, checks each open cycle for people with pending self-reviews,
-// upward reviews, or manager reviews and sends a nudge email to whoever owes the action —
+// upward reviews, or manager reviews and sends a nudge email to whoever owes the action -
 // weekly while the cycle is open, daily during the final 3 days. Only ever acts silently, the
 // same way the calendar auto-sync above does: if HR hasn't granted Gmail send access before,
 // this simply does nothing (no popup), and the manual "nudge" button in the Dashboard still
 // works for a one-off reminder. De-dupe state lives in this browser's localStorage rather than
-// Firestore (no new security rules needed) — it resets per device, which is fine since a
+// Firestore (no new security rules needed), it resets per device, which is fine since a
 // spare nudge is harmless.
 const REMINDER_LOG_KEY = 'plei_reminderLog_v1';
 function loadReminderLog(){ try{ return JSON.parse(localStorage.getItem(REMINDER_LOG_KEY)||'{}'); }catch(e){ return {}; } }
@@ -1096,11 +1096,11 @@ async function sendDueRemindersForCycle(cycle){
     try{
       await sendGmail({
         to: p.email,
-        subject: 'Reminder: pending review items — ' + cycle.label,
+        subject: 'Reminder: pending review items · ' + cycle.label,
         bodyHtml: '<p>Hi ' + escapeHtml(p.name) + ',</p>' +
           '<p>Friendly reminder that you still have pending items this cycle: ' + kinds.join(', ') + '.</p>' +
           '<p>Check your To-Dos in Plei Performance to finish up.</p>' +
-          '<p>— Plei Performance HR</p>'
+          '<p>- Plei Performance HR</p>'
       });
       log[key] = new Date().toISOString();
       saveReminderLog(log);
@@ -1115,11 +1115,11 @@ async function sendDueRemindersForCycle(cycle){
     try{
       await sendGmail({
         to: m.email,
-        subject: 'Reminder: ' + count + ' pending manager review' + (count===1?'':'s') + ' — ' + cycle.label,
+        subject: 'Reminder: ' + count + ' pending manager review' + (count===1?'':'s') + ' · ' + cycle.label,
         bodyHtml: '<p>Hi ' + escapeHtml(m.name) + ',</p>' +
           '<p>Friendly reminder that you still have <b>' + count + '</b> manager review' + (count===1?'':'s') + ' pending this cycle.</p>' +
           '<p>Check My Team in Plei Performance to finish up.</p>' +
-          '<p>— Plei Performance HR</p>'
+          '<p>- Plei Performance HR</p>'
       });
       log[key] = new Date().toISOString();
       saveReminderLog(log);
@@ -1134,7 +1134,7 @@ function findReview(type, cycleId, matchFn){ return DB.reviews[type].find(r=>r.c
 
 // Reassignment guard: a submitted manager review only counts as the CURRENT review if it was
 // written by the person's current manager. If their manager changed since it was submitted, the
-// old review is stale — it must never surface as "the" score or text, only as an HR-only archive.
+// old review is stale, it must never surface as "the" score or text, only as an HR-only archive.
 function currentManagerReviewFor(person, cycleId){
   const rev = findReview('manager', cycleId, x=>x.employeeId===person.id);
   if(!rev || rev.status!=='submitted') return {rev, stale:false, staleRev:null};
@@ -1266,9 +1266,9 @@ function render(){
 
   // Redesign (Aug 26 2026 brief): nav is now three flat items pinned at the top for everyone
   // (To-Dos, Give Feedback, Suggestion Box), then a MANAGER section (only if this person has
-  // direct reports) and an ADMIN section (only if role is 'hr' — someone like Liz can be HR
+  // direct reports) and an ADMIN section (only if role is 'hr', someone like Liz can be HR
   // AND a manager at once, so she gets both sections). How Reviews Work and Help Desk are
-  // pinned at the very bottom for everyone. My Profile is no longer a nav item at all — it
+  // pinned at the very bottom for everyone. My Profile is no longer a nav item at all, it
   // now opens only by clicking the avatar in the topbar (see below).
   const mineItems = [
     {id:'todos', icon:'check', label:'To-Dos', badge: computeTodoCount(cycle, person)},
@@ -1292,10 +1292,10 @@ function render(){
     {id:'howreviews', icon:'book', label:'How Reviews Work'},
     {id:'helpdesk', icon:'shield', label:'Help Desk'},
   ];
-  // 'myreviews' (Profile) is reachable only via the avatar, never rendered as a nav item —
+  // 'myreviews' (Profile) is reachable only via the avatar, never rendered as a nav item -
   // it's included here only so STATE.nav stays valid when the avatar click sets it.
   // 'myself' (self-review form) and 'upwardform' (review-your-manager form) are reachable only
-  // via the "Write"/"Start" buttons on the To-Dos screen — same reasoning, not sidebar items.
+  // via the "Write"/"Start" buttons on the To-Dos screen, same reasoning, not sidebar items.
   const items = [...mineItems, ...managerItems, ...adminItems, ...helpItems, {id:'myreviews'}, {id:'myself'}, {id:'upwardform'}, {id:'deptSummaries'}, {id:'mreports'}];
   if(!items.find(i=>i.id===STATE.nav)) STATE.nav = mineItems[0].id;
 
@@ -1373,7 +1373,7 @@ function renderView(nav, cycle, person){
 /* ============================= HR: DASHBOARD (consolidated, redesign Aug 2026) ============================= */
 // One screen: stat cards, then Concerns, Departments, People, then Pending and the Suggestion
 // Inbox side by side. Concerns/Departments reuse the Department Report data (Phase 4) rather than
-// recomputing anything — a low score only ever *raises* a concern here, it never places a PIP tag;
+// recomputing anything, a low score only ever *raises* a concern here, it never places a PIP tag;
 // only an admin can do that, from the Department Report itself.
 function dashboardConcernRows(cycle){
   const flagged = {}; // personId -> {status, department}
@@ -1390,7 +1390,7 @@ function dashboardConcernRows(cycle){
     const score = mgrRev ? ratingAvgOfReview(mgrRev) : null;
     const flag = flagged[p.id];
     if(flag){
-      rows.push({person:p, label:(flag.status==='yes'?'PIP':'Monitor') + ' — set on the ' + flag.department + ' department report', score, action:'ping', department:flag.department, recommendation:flag.recommendation});
+      rows.push({person:p, label:(flag.status==='yes'?'PIP':'Monitor') + ', set on the ' + flag.department + ' department report', score, action:'ping', department:flag.department, recommendation:flag.recommendation});
     } else if(score!==null && score<3.5){
       rows.push({person:p, label:'Low score this cycle, not yet triaged', score, action:'reopen', department:deptGroupFor(p.id)});
     } else if(p.role!=='hr' && !p.managerId && p.title!=='CEO'){
@@ -1437,7 +1437,7 @@ function dashboardPersonRowHtml(e, cycle, isHR=true){
 
 function dashboardConcernRowHtml(r){
   return `<div class="prow" style="cursor:default;">
-    <div class="who"><b>${escapeHtml(r.person.name)}</b><span>${escapeHtml(r.label)}</span></div>
+    <div class="who"><b data-open-record="${r.person.id}" style="cursor:pointer;text-decoration:underline;text-underline-offset:3px;text-decoration-color:#bfe3cf;">${escapeHtml(r.person.name)}</b><span>${escapeHtml(r.label)}</span></div>
     ${r.score!==null?scoreBadge(r.score):''}
     ${r.recommendation && r.recommendation.trim() ? '<span class="stpill ok" style="margin-right:8px;">✓ addressed</span>' : ''}<button class="actbtn" data-concern-action="${r.action}" data-person="${r.person.id}" data-dept="${escapeHtml(r.department||'')}">Triage</button>
   </div>`;
@@ -1565,8 +1565,8 @@ async function deleteCycle(cycleId){
 
   const total = selfSnap.size + mgrSnap.size + peerSnap.size + upwardSnap.size + peerAuthSnap.size + upwardAuthSnap.size + peerCountsDocs.length + upwardCountsDocs.length + peerSummariesSnap.size + upwardSummariesSnap.size + oneOnOnesSnap.size + calendarSyncSnap.size;
   const warning = total > 0
-    ? `This cycle has review data attached: ${selfSnap.size} self-reviews, ${mgrSnap.size} manager reviews, ${peerSnap.size} company wide feedback entries, ${upwardSnap.size} upward reviews, plus related summaries and counters. Deleting "${c.label}" will permanently erase all of it — this cannot be undone.`
-    : `"${c.label}" has no review data attached — it's safe to delete.`;
+    ? `This cycle has review data attached: ${selfSnap.size} self-reviews, ${mgrSnap.size} manager reviews, ${peerSnap.size} company wide feedback entries, ${upwardSnap.size} upward reviews, plus related summaries and counters. Deleting "${c.label}" will permanently erase all of it, this cannot be undone.`
+    : `"${c.label}" has no review data attached, it's safe to delete.`;
   if(!confirm(`Delete "${c.label}"?\n\n${warning}`)) return;
 
   const allDocs = [
@@ -1641,7 +1641,7 @@ function personModal(existingId){
       </div>
       <div class="field"><label>Department</label><div class="hint">One of the 5 groups used for Department Reports. Leave blank to auto-detect from the org chart.</div>
         <select id="pp_canonical_dept">
-          <option value="">— Auto-detect —</option>
+          <option value="">Auto-detect</option>
           ${DB.canonicalDepartments.map(d=>`<option value="${d}" ${p&&p.canonicalDept===d?'selected':''}>${d}</option>`).join('')}
         </select>
       </div>
@@ -1654,7 +1654,7 @@ function personModal(existingId){
       </div>
       <div class="field"><label>Reviewed by (manager)</label><div class="hint">This person's manager will complete their performance review.</div>
         <select id="pp_mgr">
-          <option value="">— None —</option>
+          <option value="">None</option>
           ${DB.people.filter(m=>!p || m.id!==p.id).map(m=>`<option value="${m.id}" ${p&&p.managerId===m.id?'selected':''}>${m.name}</option>`).join('')}
         </select>
       </div>
@@ -1707,7 +1707,7 @@ function personModal(existingId){
       batch.set(fdb.collection('directory').doc(newId), directoryFieldsFor(fullData));
       await batch.commit();
     }
-    document.getElementById('personModalBg').remove(); toast(p?'Person updated':'Person added — send them an invite so they can sign in'); render();
+    document.getElementById('personModalBg').remove(); toast(p?'Person updated':'Person added, send them an invite so they can sign in'); render();
   });
 }
 
@@ -1730,7 +1730,7 @@ async function deletePerson(id){
   });
   await batch.commit();
   if(STATE.previewPersonId===id) STATE.previewPersonId=null;
-  toast('Person deactivated — review history preserved'); render();
+  toast('Person deactivated, review history preserved'); render();
 }
 async function reactivatePerson(id){
   const batch = fdb.batch();
@@ -1762,7 +1762,7 @@ function inviteEmailBody(p){
     '<p>\u2014 Plei Performance HR</p>';
 }
 function inviteFallbackModal(p, errMsg){
-  const msg = `Hi ${p.name},\n\nYou've been added to Plei Performance. Please open the app and sign in with your Plei Google account (${p.email}) to get started.\n\n— HR`;
+  const msg = `Hi ${p.name},\n\nYou've been added to Plei Performance. Please open the app and sign in with your Plei Google account (${p.email}) to get started.\n\n- HR`;
   const modalHtml = `<div class="modal-bg no-print" id="inviteModalBg"><div class="modal">
     <span class="close-x" id="closeInviteModal">✕</span>
     <h3>Couldn't email ${p.name} automatically</h3>
@@ -1931,14 +1931,14 @@ function managerChainOf(personId){
 function deptMembers(dept){ return DB.people.filter(p=>p.department===dept && !p.deactivated); }
 
 // Department head = the closest ancestor shared by a clear majority of everyone tagged with that
-// department — this correctly finds e.g. Alan Shilling for Marketing (his reports are tagged
+// department, this correctly finds e.g. Alan Shilling for Marketing (his reports are tagged
 // Marketing even though his own tag is Growth) as well as a department's own top person when they
 // are tagged with it themselves (e.g. Stephanie Kowalczuk for Magic). We use "majority" rather than
 // "everyone" so a single outlier (e.g. someone in the department who happens to report directly to
 // a more senior exec instead of the department's day-to-day lead) doesn't drag the detected head all
 // the way up to that exec. Among candidates clearing the majority bar, we prefer the one closest to
 // the members (smallest average distance) over one that technically covers more people but is more
-// senior/generic. The company root (the CEO, who has no manager) is never auto-picked as a head —
+// senior/generic. The company root (the CEO, who has no manager) is never auto-picked as a head -
 // if nothing else clears the majority bar we fall back to the department's own most senior member.
 function deptHeadFor(dept){
   const members = deptMembers(dept);
@@ -1969,12 +1969,12 @@ function deptHeadFor(dept){
 }
 
 // Performance Review Summaries only ever roll up to the org's 4 VPs (Growth, Product, Engineering,
-// Operations) plus Magic — Magic sits under Growth on the reporting line (Stephanie reports to Alan)
+// Operations) plus Magic · Magic sits under Growth on the reporting line (Stephanie reports to Alan)
 // but is carved out as its own summary group since Stephanie runs it independently.
 const DEPT_SUMMARY_GROUPS = ['Growth','Product','Engineering','Operations','Magic'];
 
 // Everyone who should show up in a summary group's "Individual flags" table: anyone tagged straight
-// to that group (regardless of who they happen to report to day-to-day — e.g. someone in Magic who
+// to that group (regardless of who they happen to report to day-to-day, e.g. someone in Magic who
 // reports directly to Alan still belongs in Magic, not Growth), plus everyone below the group's
 // auto-detected head on the real reporting line for sub-teams that aren't tagged with one of our 5
 // canonical group names (e.g. Marketing/Partnerships/Ecommerce people report up through Alan and roll
@@ -2121,7 +2121,7 @@ function viewTodos(cycle, person){
   // as below a quality bar (deptSummaries.pipStatus flags a *person*, not a review), so there is
   // no real data to derive this row from. Flagged for phase 6 if HR wants this concept added.
 
-  // Kudos: completion is derived from this person's own authorship records for the cycle —
+  // Kudos: completion is derived from this person's own authorship records for the cycle -
   // folded into the cycle to-dos so it's all in one place; anytime feedback later in the
   // year is still available via Give Feedback in the sidebar.
   const gaveFeedback = (DB.peerAuthorship||[]).some(r=>r.cycleId===cycle.id && r.authorEmail===person.email);
@@ -2130,14 +2130,14 @@ function viewTodos(cycle, person){
   rows1.push(todoRowHtml({done:gaveSuggestion, label:'Drop a suggestion in the box', actionLabel: gaveSuggestion?null:'Start', actionAttr:'data-nav="suggestform"'}));
 
   const buckets = [];
-  // Cycle to-dos only show while this cycle is open — they disappear once HR closes it, and
+  // Cycle to-dos only show while this cycle is open, they disappear once HR closes it, and
   // reopen automatically for the next cycle (a fresh page load defaults to whichever cycle is open).
   if(cycle.status === 'open'){
     buckets.push({header: cycle.label.toUpperCase(), hint: `due ${fmtShort(cycle.endDate)}`, rowsHtml: rows1.join('')});
   }
 
   // Follow-ups due (managers only): year-round commitments registry (PIP checkpoints, monitor
-  // check-ins, workload reviews). Genuinely new in this redesign — the followUps collection
+  // check-ins, workload reviews). Genuinely new in this redesign, the followUps collection
   // starts empty, so this bucket is honestly empty until someone logs a commitment.
   if(isManager){
     const myFollowUps = (DB.followUps||[]).filter(f=>f.managerId===person.id && f.status!=='done')
@@ -2158,7 +2158,7 @@ function viewTodos(cycle, person){
   }
 
   // Coffee chat (monthly cross-department pairing). Pairing generation is a manual admin
-  // action and out of scope for this phase — if this person has no pairing yet for the current
+  // action and out of scope for this phase, if this person has no pairing yet for the current
   // month, this shows a neutral empty state rather than a fabricated entry.
   const monthKey = new Date().toISOString().slice(0,7);
   const myPairing = (DB.coffeeChats||[]).find(c=>c.month===monthKey && (c.personA===person.id || c.personB===person.id));
@@ -2242,9 +2242,9 @@ function viewManagerReports(cycle, person){
   const teamSaysVisible = upwardVisible(m.id, cycle.id);
   const upwardSummary = upwardSummaryFor(m.id, cycle.id);
   let teamSaysText;
-  if(!teamSaysVisible) teamSaysText = `Fewer than ${ANONYMITY_MIN} upward responses this cycle — themes withheld to protect anonymity.`;
+  if(!teamSaysVisible) teamSaysText = `Fewer than ${ANONYMITY_MIN} upward responses this cycle, themes withheld to protect anonymity.`;
   else if(upwardSummary && upwardSummary.themes) teamSaysText = upwardSummary.themes;
-  else teamSaysText = "HR hasn't written a themes summary for this manager yet — write one from their record in the Dashboard's People panel.";
+  else teamSaysText = "HR hasn't written a themes summary for this manager yet, write one from their record in the Dashboard's People panel.";
 
   let calibrationText;
   if(givenAvg===null || companyAvg===null){
@@ -2268,7 +2268,7 @@ function viewManagerReports(cycle, person){
       <h2 style="margin:0;">Manager reports</h2>
       <select id="mreportsSelect">${managers.map(mg=>`<option value="${mg.id}" ${mg.id===m.id?'selected':''}>${escapeHtml(mg.name)} · ${escapeHtml(mg.department)}</option>`).join('')}</select>
     </div>
-    <div class="desc">Internal to admin — never shown to the manager and never published. ${escapeHtml(cycle.label)}.</div>
+    <div class="desc">Internal to admin, never shown to the manager and never published. ${escapeHtml(cycle.label)}.</div>
   </div>
 
   <div class="grid grid-4">
@@ -2279,7 +2279,7 @@ function viewManagerReports(cycle, person){
   </div>
 
   ${STATE.mreportsShowRaw && upwardList.length>0 ? `<div class="card">
-    <h3 style="margin-top:0;">Upward feedback responses — ${escapeHtml(m.name)}</h3>
+    <h3 style="margin-top:0;">Upward feedback responses · ${escapeHtml(m.name)}</h3>
     <div class="desc">Anonymous · raw responses, HR only. Never shared with ${escapeHtml(m.name)}.</div>
     ${upwardList.map(r=>`<div class="quote-card">
       <div class="meta">Anonymous · Support ${r.ratings.support} · Communication ${r.ratings.communication} · Overall satisfaction ${r.ratings.overall}</div>
@@ -2290,7 +2290,7 @@ function viewManagerReports(cycle, person){
   </div>` : ''}
 
   ${STATE.mreportsShowQuality && qualityIssues.length>0 ? `<div class="card">
-    <h3 style="margin-top:0;">Quality flags — ${escapeHtml(m.name)}</h3>
+    <h3 style="margin-top:0;">Quality flags · ${escapeHtml(m.name)}</h3>
     <div class="desc">Reviews with signals worth a second look before publishing.</div>
     ${qualityIssues.map(q=>`<div class="quote-card">
       <div class="meta">${escapeHtml(q.person.name)}</div>
@@ -2302,7 +2302,7 @@ function viewManagerReports(cycle, person){
     <div class="block"><b>What their team says</b><p>${escapeHtml(teamSaysText)}</p></div>
     <div class="block"><b>How they review</b><p>${escapeHtml(calibrationText)}</p></div>
     <div class="block"><b>Follow-up discipline</b><p>${escapeHtml(followUpText)}</p></div>
-    <div class="small muted" style="margin-top:4px;">Analytics only — write the status and recommendation from ${escapeHtml(m.name)}'s record in the Dashboard's People panel.</div>
+    <div class="small muted" style="margin-top:4px;">Analytics only, write the status and recommendation from ${escapeHtml(m.name)}'s record in the Dashboard's People panel.</div>
   </div>`;
 }
 /* ============================= HR: CYCLE & PEOPLE (the only settings screen) ============================= */
@@ -2317,7 +2317,7 @@ function viewCyclePeople(cycle){
   return `
   <div class="card">
     <div class="row" style="justify-content:space-between;">
-      <div><h2>Cycles</h2><div class="desc">Review cycles — dates and status. Reminders go out manually (see Dashboard → Pending) — there's no automated reminder cadence configured in this app yet.</div></div>
+      <div><h2>Cycles</h2><div class="desc">Review cycles, dates and status. Reminders go out manually (see Dashboard → Pending), there's no automated reminder cadence configured in this app yet.</div></div>
       <div class="row" style="gap:8px;">
         <button class="btn ghost sm" id="openLoginSettingsBtn">Login settings</button>
         <button class="btn" id="newCycleBtn">+ New cycle</button>
@@ -2458,7 +2458,7 @@ function viewDeptSummaries(cycle, person){
     return viewDeptReport(STATE.deptSummaryDept, cycle, person, true);
   }
   // Manager: only the auto-detected department head gets the live report, straight to their
-  // own department, no tabs, no picker — everyone else with direct reports has Team Home but
+  // own department, no tabs, no picker, everyone else with direct reports has Team Home but
   // not this view. Re-checked here (not just at the nav level) in case STATE.nav is stale.
   const headGroup = DEPT_SUMMARY_GROUPS.find(g=>(deptHeadFor(g)||{}).id===person.id);
   if(!headGroup) return `<div class="card"><h2>Department Report</h2><div class="empty">Department reports are only visible to the head of each department.</div></div>`;
@@ -2466,7 +2466,7 @@ function viewDeptSummaries(cycle, person){
 }
 
 // Resolves which of the 5 canonical summary groups (DEPT_SUMMARY_GROUPS) a person belongs to,
-// by real org-chart membership — reuses summaryGroupMembers/deptHeadFor rather than trusting
+// by real org-chart membership, reuses summaryGroupMembers/deptHeadFor rather than trusting
 // person.department directly, since sub-teams (e.g. Marketing) roll up into a different group.
 function deptGroupFor(personId){
   for(const g of DEPT_SUMMARY_GROUPS){
@@ -2483,7 +2483,7 @@ function deptReportFor(dept){
 }
 
 // Everything a Department Report shows about one person, computed live from real review data for
-// the active cycle. Nothing here is stored except the admin-set status and recommendation — the
+// the active cycle. Nothing here is stored except the admin-set status and recommendation, the
 // rest (self-review words, manager's assessment, 1:1 outcome, score) always reflects the current
 // state of their review, so the report can never go stale or say something that isn't backed by
 // an actual submitted review.
@@ -2533,9 +2533,9 @@ function deptReportEmailHtml(dept, cycle, report, entries, teamScore, managerSco
   const block = (label, text, source)=> text ? `<div style="border-left:3px solid ${SRC_COLOR[source]||'#e1e5e2'};padding:2px 0 2px 10px;margin:8px 0;"><b>${label}</b>${source?` <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:${SRC_COLOR[source]};">· ${SRC_TAG[source]}</span>`:''}<br>${escapeHtml(text).replace(/\n/g,'<br>')}</div>` : '';
   const cardsHtml = entries.map(e=>{
     const p = e.person;
-    if(!e.notable) return `<p>${escapeHtml(p.name)} — ${e.score!==null?e.score.toFixed(1):'—'} — No action</p>`;
+    if(!e.notable) return `<p>${escapeHtml(p.name)} · ${e.score!==null?e.score.toFixed(1):'—'} · No action</p>`;
     return `<div style="border:1px solid #e1e5e2;border-radius:10px;padding:12px 14px;margin-bottom:12px;">
-      <p style="margin:0 0 6px;"><b>${escapeHtml(p.name)}</b> — reviewed by ${escapeHtml(e.reviewerOfRecord)} — score ${e.score!==null?e.score.toFixed(1):'—'} — ${escapeHtml({no:'No action',monitor:'Monitor',yes:'PIP'}[e.status]||'No action')}</p>
+      <p style="margin:0 0 6px;"><b>${escapeHtml(p.name)}</b> · reviewed by ${escapeHtml(e.reviewerOfRecord)} · score ${e.score!==null?e.score.toFixed(1):'—'} · ${escapeHtml({no:'No action',monitor:'Monitor',yes:'PIP'}[e.status]||'No action')}</p>
       ${block('In their words', e.inTheirWords, 'self')}
       ${block("Manager's assessment", e.managersAssessment, 'manager')}
       ${block('1:1 outcome', e.oneOnOneOutcome, 'manager')}
@@ -2544,12 +2544,12 @@ function deptReportEmailHtml(dept, cycle, report, entries, teamScore, managerSco
   }).join('');
   return `
     <p>Hi ${escapeHtml(headName)},</p>
-    <p>HR has published the Department Report for <b>${escapeHtml(dept)}</b> — ${escapeHtml(cycle.label)}.</p>
+    <p>HR has published the Department Report for <b>${escapeHtml(dept)}</b> · ${escapeHtml(cycle.label)}.</p>
     <p>Team score: ${teamScore!==null?teamScore.toFixed(1):'—'} · Your score: ${managerScore!==null?managerScore.toFixed(1):'—'}</p>
     ${block('HR Summary', report.summary, 'hr')}
     ${cardsHtml}
-    <p>Happy to walk through any of this together — just reach out.</p>
-    <p>— Plei Performance HR</p>
+    <p>Happy to walk through any of this together, just reach out.</p>
+    <p>- Plei Performance HR</p>
   `;
 }
 
@@ -2560,16 +2560,16 @@ function buildDeptReportPrintable(dept, cycle, report, entries, teamScore, manag
   const statusLabel = {no:'No action', monitor:'Monitor', yes:'PIP'};
   const cardsHtml = entries.map(e=>{
     const p = e.person;
-    if(!e.notable) return `<div class="block"><b>${escapeHtml(p.name)}</b><p>${e.score!==null?e.score.toFixed(1):'—'} — No action</p></div>`;
+    if(!e.notable) return `<div class="block"><b>${escapeHtml(p.name)}</b><p>${e.score!==null?e.score.toFixed(1):'—'} · No action</p></div>`;
     return `<div class="block" style="border-bottom:1px solid #e1e5e2;padding-bottom:12px;">
-      <b>${escapeHtml(p.name)} — reviewed by ${escapeHtml(e.reviewerOfRecord)} — ${e.score!==null?e.score.toFixed(1):'—'} — ${escapeHtml(statusLabel[e.status]||'No action')}</b>
+      <b>${escapeHtml(p.name)} · reviewed by ${escapeHtml(e.reviewerOfRecord)} · ${e.score!==null?e.score.toFixed(1):'—'} · ${escapeHtml(statusLabel[e.status]||'No action')}</b>
       ${block('In their words', e.inTheirWords, 'self')}
       ${block("Manager's assessment", e.managersAssessment, 'manager')}
       ${block('1:1 outcome', e.oneOnOneOutcome, 'manager')}
       ${block('Recommendation', e.recommendation, 'hr')}
     </div>`;
   }).join('');
-  return `<html><head><meta charset="UTF-8"><title>Department Report — ${escapeHtml(dept)}</title>
+  return `<html><head><meta charset="UTF-8"><title>Department Report · ${escapeHtml(dept)}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=clash-grotesk@600&display=swap">
   <style>
@@ -2580,7 +2580,7 @@ function buildDeptReportPrintable(dept, cycle, report, entries, teamScore, manag
     .block{margin-bottom:16px;} .block b{display:block;font-size:13px;margin-bottom:3px;color:#16755C;} .block p{margin:0;font-size:13.5px;line-height:1.5;}
   </style></head><body>
   ${pdfHeader(cycle.label || '')}
-  <h1>${escapeHtml(dept)} — Department Report</h1>
+  <h1>${escapeHtml(dept)} · Department Report</h1>
   <div class="meta">Department head: ${escapeHtml(headName)||'—'} · ${escapeHtml(cycle.label)} · Team score ${teamScore!==null?teamScore.toFixed(1):'—'} · Manager score ${managerScore!==null?managerScore.toFixed(1):'—'}</div>
   ${block('HR Summary', report.summary, 'hr')}
   ${cardsHtml}
@@ -2603,7 +2603,7 @@ function viewDeptReport(dept, cycle, person, isAdmin){
 
   if(!isAdmin && !published){
     return `<div class="card">
-      <h2>${escapeHtml(dept)} — department report</h2>
+      <h2>${escapeHtml(dept)} · department report</h2>
       <div class="desc">HR hasn't published this cycle's department report yet.</div>
       <div class="empty">Check back once HR has finished this cycle's review.</div>
     </div>`;
@@ -2617,7 +2617,7 @@ function viewDeptReport(dept, cycle, person, isAdmin){
     ${tabsHtml}
     <div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
       <div>
-        <h2 style="margin:0;">${escapeHtml(dept)} — department report</h2>
+        <h2 style="margin:0;">${escapeHtml(dept)} · department report</h2>
         <div class="desc" style="margin:4px 0 0;">${escapeHtml(cycle.label)}${head?' · Department head: '+escapeHtml(head.name):''}</div>
       </div>
       <div class="row" style="gap:10px;">
@@ -2626,8 +2626,8 @@ function viewDeptReport(dept, cycle, person, isAdmin){
         ${isAdmin?`<button class="btn" id="dsPublishBtn" data-dept="${escapeHtml(dept)}">Publish to manager</button>`:''}
       </div>
     </div>
-    ${published && report.publishedAt ? `<div class="small muted" style="margin-top:8px;">Published ${fmtDateTime(report.publishedAt)}${report.publishedByName?' by '+escapeHtml(report.publishedByName):''}${isAdmin?' — publishing again resends and overwrites what '+(head?escapeHtml(head.name):'the manager')+' sees.':''}</div>` : ''}
-    ${isAdmin && !head ? `<div class="small muted" style="margin-top:8px;">No department head detected for ${escapeHtml(dept)} yet — publishing will be disabled until one is set on the org chart.</div>` : ''}
+    ${published && report.publishedAt ? `<div class="small muted" style="margin-top:8px;">Published ${fmtDateTime(report.publishedAt)}${report.publishedByName?' by '+escapeHtml(report.publishedByName):''}${isAdmin?', publishing again resends and overwrites what '+(head?escapeHtml(head.name):'the manager')+' sees.':''}</div>` : ''}
+    ${isAdmin && !head ? `<div class="small muted" style="margin-top:8px;">No department head detected for ${escapeHtml(dept)} yet, publishing will be disabled until one is set on the org chart.</div>` : ''}
   </div>
 
   <div class="grid grid-4">
@@ -2664,7 +2664,7 @@ function viewPeerHR(cycle){
   const byTarget = {};
   reviews.forEach(r=>{ (byTarget[r.targetId] = byTarget[r.targetId]||[]).push(r); });
 
-  // Only people who actually received feedback this cycle show up here — HR asked to drop
+  // Only people who actually received feedback this cycle show up here · HR asked to drop
   // the long tail of everyone-with-zero from this list (it's still visible via Dashboard
   // participation stats elsewhere, just not cluttering this table).
   const coverageRows = Object.keys(byTarget).map(pid=>{
@@ -2674,7 +2674,7 @@ function viewPeerHR(cycle){
 
   return `<div class="card">
     <h2>Company wide feedback</h2>
-    <div class="desc">${cycle.label} — anyone can leave feedback about anyone, anytime; it's optional. Only people who've received at least one piece of feedback are listed below. Click a name to read their feedback, grouped by month, and publish a summary whenever you're ready to share it with them and their manager.</div>
+    <div class="desc">${cycle.label}, anyone can leave feedback about anyone, anytime; it's optional. Only people who've received at least one piece of feedback are listed below. Click a name to read their feedback, grouped by month, and publish a summary whenever you're ready to share it with them and their manager.</div>
     <div class="row" style="margin-bottom:10px;">
       <span class="tag">${reviews.length} pieces of feedback received</span>
       <span class="badge neutral">${coverageRows.length} people with feedback</span>
@@ -2714,8 +2714,8 @@ function viewPeerHR(cycle){
           ${rv.answers.example?`<div><b>Example:</b> ${escapeHtml(rv.answers.example)}</div>`:''}
           ${rv.answers.growth?`<div><b>Suggestion:</b> ${escapeHtml(rv.answers.growth)}</div>`:''}
         </div>`).join('')}`).join('')}
-        ${lowCount ? `<div class="login-note">Heads up: fewer than ${ANONYMITY_MIN} responses — summarizing very specific wording could make it easier to guess who wrote it.</div>` : ''}
-        <div class="small muted" style="margin-top:10px;">${summary&&summary.published?`Summary published ${fmtDate((summary.publishedAt||'').slice(0,10))}`:'No summary published yet'} — write or update it from ${r.p.name}'s record in the Dashboard's People panel.</div>
+        ${lowCount ? `<div class="login-note">Heads up: fewer than ${ANONYMITY_MIN} responses, summarizing very specific wording could make it easier to guess who wrote it.</div>` : ''}
+        <div class="small muted" style="margin-top:10px;">${summary&&summary.published?`Summary published ${fmtDate((summary.publishedAt||'').slice(0,10))}`:'No summary published yet'}, write or update it from ${r.p.name}'s record in the Dashboard's People panel.</div>
         </div>
       </td></tr>`;
       return rowHtml + expandedHtml;
@@ -2813,7 +2813,7 @@ function myTeamPersonSectionsHtml(e, cycle, isHR){
     const count = upwardCountFor(p.id, cycle.id);
     const summary = e.upwardSummary;
     if(isHR){
-      // HR authors the upward summary here — the only place it's written. Company Wide
+      // HR authors the upward summary here, the only place it's written. Company Wide
       // Feedback and Manager Reports stay read-only (intake queue / analytics).
       const skipMgr = p.managerId ? getPerson(p.managerId) : null;
       const curRecipients = summary ? (summary.recipients || 'manager') : 'manager';
@@ -2823,7 +2823,7 @@ function myTeamPersonSectionsHtml(e, cycle, isHR){
       const rawUpwardHtml = rawUpwardList.length ? rawUpwardList.map(r=>`<div class="pf"><div class="small muted" style="margin-bottom:4px;">Support ${r.ratings.support} · Communication ${r.ratings.communication} · Overall ${r.ratings.overall}</div><p style="margin:0 0 6px;"><b>Support received:</b> ${escapeHtml(r.answers.strengths)||'—'}</p><p style="margin:0 0 6px;"><b>Opportunities for improvement:</b> ${escapeHtml(r.answers.improvements)||'—'}</p>${r.answers.other?'<p style="margin:0;"><b>Other:</b> '+escapeHtml(r.answers.other)+'</p>':''}</div>`).join('') : '<div class="pf"><p>No raw feedback submitted yet.</p></div>';
       const body = `<div class="pdims"><span>Average <b>${e.upwardScore!==null?e.upwardScore.toFixed(1):'—'}</b></span><span>Responses <b>${count}</b></span></div>
         <div class="pf"><b>RAW PIECES · VISIBLE TO HR ONLY (${rawUpwardList.length})</b></div>${rawUpwardHtml}
-        <div class="pf"><b>SUMMARY TO SEND</b><p style="margin-bottom:6px;">Analyze the raw upward feedback and write your own summary — this is what gets sent, never the raw quotes.</p>
+        <div class="pf"><b>SUMMARY TO SEND</b><p style="margin-bottom:6px;">Analyze the raw upward feedback and write your own summary, this is what gets sent, never the raw quotes.</p>
           <textarea data-autosave-id="upSummary_${p.id}" data-summary-themes="${p.id}" rows="4">${escapeHtml(themesVal)}</textarea>
         </div>
         <div style="padding:0 14px 4px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
@@ -2847,7 +2847,7 @@ function myTeamPersonSectionsHtml(e, cycle, isHR){
 
   const peerSummary = peerSummaryFor(p.id, cycle.id);
   if(isHR){
-    // HR authors the company-wide feedback summary here too — Company Wide Feedback itself
+    // HR authors the company-wide feedback summary here too · Company Wide Feedback itself
     // is just the raw intake queue now, no publishing from that screen anymore.
     const rawList = DB.reviews.peer.filter(r=>r.cycleId===cycle.id && r.targetId===p.id);
     const draft = loadLocalDraft(draftKey('peerSummary', cycle.id, p.id));
@@ -2857,7 +2857,7 @@ function myTeamPersonSectionsHtml(e, cycle, isHR){
       return `<div class="pf"><p>"${escapeHtml(rv.answers.strengths||'')}"${rAvg!==null?' ('+rAvg.toFixed(1)+')':''}</p></div>`;
     }).join('') : '<div class="pf"><p>No raw feedback submitted yet.</p></div>';
     const body = `<div class="pf"><b>RAW PIECES · VISIBLE TO HR ONLY (${rawList.length})</b></div>${rawHtml}
-      <div class="pf"><b>SUMMARY TO SEND</b><p style="margin-bottom:6px;">Summarize the raw feedback in your own words — this is what they and their manager see, never the raw quotes.</p>
+      <div class="pf"><b>SUMMARY TO SEND</b><p style="margin-bottom:6px;">Summarize the raw feedback in your own words, this is what they and their manager see, never the raw quotes.</p>
         <textarea data-autosave-id="cwfSummary_${p.id}" data-peer-summary-themes="${p.id}" rows="4">${escapeHtml(themesVal)}</textarea>
       </div>
       <div style="padding:0 14px 12px;"><span class="actbtn" data-publish-peer-summary="${p.id}">${peerSummary&&peerSummary.published?'Update published summary':'Publish summary'}</span></div>`;
@@ -3052,7 +3052,7 @@ function peerSummaryModal(cycle, targetPerson){
   if(!summary || !summary.published){ return; }
   const modalHtml = `<div class="modal-bg no-print" id="peerSummaryModalBg"><div class="modal" style="width:620px;">
     <span class="close-x" id="closePeerSummaryModal">✕</span>
-    <h3>Company wide feedback — ${targetPerson.name}</h3>
+    <h3>Company wide feedback · ${targetPerson.name}</h3>
     <div class="desc">${cycle.label} · ${summary.responseCount} anonymous responses, summarized by HR. Raw quotes are never shown.</div>
     <div class="grid grid-3" style="margin:14px 0;">
       ${PEER_RATINGS.map(f=>`<div class="stat"><div class="num">${summary.avgRatings&&summary.avgRatings[f.key]?summary.avgRatings[f.key].toFixed(1):'—'}</div><div class="lbl">${f.label}</div></div>`).join('')}
@@ -3067,7 +3067,7 @@ function upwardSummaryModal(cycle, managerPerson){
   if(!summary || !summary.published){ return; }
   const modalHtml = `<div class="modal-bg no-print" id="upwardSummaryModalBg"><div class="modal" style="width:620px;">
     <span class="close-x" id="closeUpwardSummaryModal">✕</span>
-    <h3>Upward feedback — ${managerPerson.name}</h3>
+    <h3>Upward feedback · ${managerPerson.name}</h3>
     <div class="desc">${cycle.label} · ${summary.responseCount} anonymous responses from ${managerPerson.name}'s team, reviewed and summarized by HR. Raw quotes are never shown.</div>
     <div class="grid grid-3" style="margin:14px 0;">
       ${UPWARD_RATINGS.map(f=>`<div class="stat"><div class="num">${summary.avgRatings&&summary.avgRatings[f.key]?summary.avgRatings[f.key].toFixed(1):'—'}</div><div class="lbl">${f.label}</div></div>`).join('')}
@@ -3086,7 +3086,7 @@ function viewManagerReviewForm(cycle, manager, employee){
   const draftAnswers = draft.answers || {};
   return `<div class="card">
     <div class="row" style="justify-content:space-between;">
-      <h2>Manager review — ${employee.name}</h2>
+      <h2>Manager review · ${employee.name}</h2>
       <button class="btn ghost sm" data-close-manager-form="1">✕ Close</button>
     </div>
     <div class="desc">${cycle.label} · ${employee.title} · ${employee.department}</div>
@@ -3136,16 +3136,16 @@ function viewSelfForm(cycle, person){
 /* ============================= PEER REVIEW FORM ============================= */
 /* ============================= HOW REVIEWS WORK ============================= */
 const EMPLOYEE_STEPS = [
-  {title:'Write your self-review', body:'Reflect on your accomplishments, goals, and growth areas for this cycle. Named — your manager and HR can read it.'},
-  {title:'Give company wide feedback (optional, anytime)', body:'Pick a department, then a person, and leave anonymous feedback about anyone at Plei — positive or a concern. Not required, and nobody needs to ask you first. It goes to HR only — the person never sees raw feedback or who wrote it.'},
-  {title:'Review your manager', body:'Give feedback on your manager’s support and communication under Review My Manager. Anonymous — it goes to HR first, never straight to your manager.'},
+  {title:'Write your self-review', body:'Reflect on your accomplishments, goals, and growth areas for this cycle. Named, your manager and HR can read it.'},
+  {title:'Give company wide feedback (optional, anytime)', body:'Pick a department, then a person, and leave anonymous feedback about anyone at Plei, positive or a concern. Not required, and nobody needs to ask you first. It goes to HR only, the person never sees raw feedback or who wrote it.'},
+  {title:'Review your manager', body:'Give feedback on your manager’s support and communication under Review My Manager. Anonymous, it goes to HR first, never straight to your manager.'},
   {title:'Get your manager’s review', body:'Your manager writes about your performance. Once both are in, you see the combined self + manager report ahead of your 1:1.'},
-  {title:'Meet for your 1:1', body:'Once your manager submits your review, they’ll schedule a 1:1 with you on Google Calendar to walk through it together — you’ll get a real calendar invite. Check My Profile for the date.'},
-  {title:'See feedback about you', body:'If colleagues leave company wide feedback about you, HR reviews it and, once there are enough responses, publishes a summary to My Profile — never the raw quotes.'},
-  {title:'Cycle closes', body:'Once HR locks the cycle, all reviews become read-only — nothing can be edited or submitted late.'},
+  {title:'Meet for your 1:1', body:'Once your manager submits your review, they’ll schedule a 1:1 with you on Google Calendar to walk through it together, you’ll get a real calendar invite. Check My Profile for the date.'},
+  {title:'See feedback about you', body:'If colleagues leave company wide feedback about you, HR reviews it and, once there are enough responses, publishes a summary to My Profile, never the raw quotes.'},
+  {title:'Cycle closes', body:'Once HR locks the cycle, all reviews become read-only, nothing can be edited or submitted late.'},
 ];
 const MANAGER_STEPS = [
-  {title:'Write manager reviews', body:'Evaluate each direct report. They’ll see this next to their self-review before your 1:1 — leave enough time before the deadline.'},
+  {title:'Write manager reviews', body:'Evaluate each direct report. They’ll see this next to their self-review before your 1:1, leave enough time before the deadline.'},
   {title:'Schedule the 1:1 debrief', body:'Required as soon as you submit a review: schedule the 1:1 from My Team. It creates a real Google Calendar invite for you and your report, and you confirm once you\'ve had the conversation.'},
   {title:'Track your team', body:'Use My Team to see who on your team is behind on their self-review, so nobody surprises you at the deadline.'},
   {title:'Receive upward feedback', body:'Once HR publishes a summary, check My Upward Feedback for aggregate scores and HR-written themes. You’ll never see raw quotes or who wrote what.'},
@@ -3166,7 +3166,7 @@ function viewHowReviewsWork(person){
   const isManager = person && hasReports(person.id);
   return `<div class="card">
     <h2>How reviews work</h2>
-    <div class="desc">Four types of feedback, each with different visibility rules. Knowing who sees what before you write anything is the whole point — candor depends on trusting these rules.</div>
+    <div class="desc">Four types of feedback, each with different visibility rules. Knowing who sees what before you write anything is the whole point, candor depends on trusting these rules.</div>
     ${HOW_REVIEWS_WORK.map(t=>`<div class="quote-card">
       <div style="font-family:var(--font-head);font-weight:700;font-size:17px;color:var(--cyprus);display:flex;align-items:center;gap:7px;margin-bottom:6px;">
         ${t.anon?icon('lock',15):''}<span>${t.type}</span>
@@ -3177,12 +3177,12 @@ function viewHowReviewsWork(person){
     </div>`).join('')}
   </div>
   <div class="card">
-    <h2>Step by step — for everyone</h2>
+    <h2>Step by step, for everyone</h2>
     <div class="desc">What to do, in order, over the course of a cycle. Every step below applies to you no matter your role.</div>
     ${EMPLOYEE_STEPS.map((s,i)=>stepRow(i+1, s.title, s.body)).join('')}
   </div>
   ${isManager?`<div class="card">
-    <h2>Step by step — if you manage people</h2>
+    <h2>Step by step, if you manage people</h2>
     <div class="desc">On top of everything above, as a manager you also need to do the following for your direct reports.</div>
     ${MANAGER_STEPS.map((s,i)=>stepRow(i+1, s.title, s.body)).join('')}
   </div>`:''}`;
@@ -3195,7 +3195,7 @@ function viewPeerForm(cycle, person){
   const targetId = STATE.cwTarget;
   const depts = Array.from(new Set(DB.people.filter(p=>!p.deactivated || p.visibleInFeedback).map(p=>p.department))).sort();
 
-  const explainer = `<div class="hrw-note"><b>${icon('shield',14)} How this works:</b> Company wide feedback is anonymous and completely optional — nobody is assigned to review you, and you don't need to be asked to give feedback. Use it to share something positive about a colleague, or to flag a concern or a negative aspect you think needs attention. Pick a department, then the person, then leave your feedback. Your feedback goes to HR only — the person and their manager never see raw feedback or who wrote it, only a summary HR shares once enough responses come in.</div>`;
+  const explainer = `<div class="hrw-note"><b>${icon('shield',14)} How this works:</b> Company wide feedback is anonymous and completely optional, nobody is assigned to review you, and you don't need to be asked to give feedback. Use it to share something positive about a colleague, or to flag a concern or a negative aspect you think needs attention. Pick a department, then the person, then leave your feedback. Your feedback goes to HR only, the person and their manager never see raw feedback or who wrote it, only a summary HR shares once enough responses come in.</div>`;
 
   let body;
   if(!targetId){
@@ -3232,7 +3232,7 @@ function viewPeerForm(cycle, person){
 
   return `<div class="card">
     <h2>Company wide feedback</h2>
-    <div class="desc">${cycle.label} · Give anonymous feedback to anyone at Plei — entirely optional.</div>
+    <div class="desc">${cycle.label} · Give anonymous feedback to anyone at Plei, entirely optional.</div>
     ${explainer}
     ${body}
   </div>
@@ -3244,7 +3244,7 @@ function viewPeerForm(cycle, person){
 function renderMyPeerSubmissions(cycle, person){
   const mine = DB.peerAuthorship.filter(r=>r.cycleId===cycle.id && r.authorEmail===person.email);
   if(!mine.length) return "<div class=\"empty\">You haven't given any feedback this cycle.</div>";
-  return `<ul>${mine.map(r=>`<li>About ${getPerson(r.targetId)?getPerson(r.targetId).name:'—'} — ${fmtDate((r.createdAt||'').slice(0,10))} <button class="btn ghost sm" data-print-peer="${r.id}">🖨️ Download PDF</button></li>`).join('')}</ul>`;
+  return `<ul>${mine.map(r=>`<li>About ${getPerson(r.targetId)?getPerson(r.targetId).name:'—'} · ${fmtDate((r.createdAt||'').slice(0,10))} <button class="btn ghost sm" data-print-peer="${r.id}">🖨️ Download PDF</button></li>`).join('')}</ul>`;
 }
 
 /* ============================= UPWARD REVIEW FORM ============================= */
@@ -3262,12 +3262,12 @@ function viewUpwardForm(cycle, person){
   const curRatings = Object.assign({}, baseRatings, draft.ratings || {});
   const curAnswers = Object.assign({}, baseAnswers, draft.answers || {});
   let statusNote = '';
-  if(locked) statusNote = '<div class="row" style="margin-bottom:12px;"><span class="badge ok">You already submitted your review this cycle — here\'s what you sent (read-only)</span></div>';
-  else if(already) statusNote = '<div class="row" style="margin-bottom:12px;"><span class="badge warn">You already submitted this cycle — you can still edit it below until HR publishes the summary</span></div>';
+  if(locked) statusNote = '<div class="row" style="margin-bottom:12px;"><span class="badge ok">You already submitted your review this cycle, here\'s what you sent (read-only)</span></div>';
+  else if(already) statusNote = '<div class="row" style="margin-bottom:12px;"><span class="badge warn">You already submitted this cycle, you can still edit it below until HR publishes the summary</span></div>';
   return `<div class="card">
     <h2>Review my manager <span class="badge" style="background:#e6f4ea;color:#137333;font-weight:600;">🔒 Anonymous</span></h2>
-    <div class="desc">${cycle.label} · About <b>${mgr.name}</b> (${mgr.department}) — <b>this review is anonymous.</b> HR reads your responses first; ${mgr.name.split(' ')[0]} never sees your name or exact answers, only an HR-written summary.</div>
-    <div class="hrw-note"><b>${icon('shield',14)} How this works:</b> This review does not go straight to ${mgr.name.split(' ')[0]}. It's anonymous and goes to HR only — HR reads every raw response, then writes an overall summary and decides what, if anything, to share with ${mgr.name.split(' ')[0]}. Your name and individual answers are never shared.</div>
+    <div class="desc">${cycle.label} · About <b>${mgr.name}</b> (${mgr.department}) · <b>this review is anonymous.</b> HR reads your responses first; ${mgr.name.split(' ')[0]} never sees your name or exact answers, only an HR-written summary.</div>
+    <div class="hrw-note"><b>${icon('shield',14)} How this works:</b> This review does not go straight to ${mgr.name.split(' ')[0]}. It's anonymous and goes to HR only · HR reads every raw response, then writes an overall summary and decides what, if anything, to share with ${mgr.name.split(' ')[0]}. Your name and individual answers are never shared.</div>
     ${statusNote}
     ${ratingLegendHTML()}
     <div id="upwardRatings">${UPWARD_RATINGS.map(f=>ratingRowHtml(f, curRatings[f.key]||0)).join('')}</div>
@@ -3312,7 +3312,7 @@ function viewMyReviews(cycle, person){
   const trend = (latestScored && priorScored) ? (latestScored.score - priorScored.score) : null;
 
   // Lifetime average: every cycle with a submitted, scoreable manager review, not just the
-  // latest one — gives a fuller picture than a single cycle's snapshot.
+  // latest one, gives a fuller picture than a single cycle's snapshot.
   const lifetimeScores = cyclesDesc.map(c=>{
     const mgrRev = findReview('manager', c.id, x=>x.employeeId===person.id && x.status==='submitted');
     return mgrRev ? ratingAvgOfReview(mgrRev) : null;
@@ -3418,9 +3418,9 @@ function buildCombinedPrintable(cycle, employee){
   const mgrRev = findReview('manager',cycle.id,x=>x.employeeId===employee.id);
   const mgr = employee.managerId ? getPerson(employee.managerId) : null;
   const followUps = (DB.followUps||[]).filter(f=>f.personId===employee.id).sort((a,b)=>(a.checkpointDate||'').localeCompare(b.checkpointDate||''));
-  const ratingsHtml = mgrRev ? MANAGER_RATINGS.map(f=>`<tr><td>${f.label}</td><td><b>${mgrRev.ratings[f.key]}</b>/5 — ${RATING_LABELS[mgrRev.ratings[f.key]]}</td></tr>`).join('') : '';
+  const ratingsHtml = mgrRev ? MANAGER_RATINGS.map(f=>`<tr><td>${f.label}</td><td><b>${mgrRev.ratings[f.key]}</b>/5 · ${RATING_LABELS[mgrRev.ratings[f.key]]}</td></tr>`).join('') : '';
   return `
-  <html><head><meta charset="UTF-8"><title>Review — ${employee.name}</title>
+  <html><head><meta charset="UTF-8"><title>Review · ${employee.name}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=clash-grotesk@600&display=swap">
   <style>
@@ -3432,7 +3432,7 @@ function buildCombinedPrintable(cycle, employee){
     .block{margin-bottom:16px;} .block b{display:block;font-size:13px;margin-bottom:3px;color:#16755C;} .block p{margin:0;font-size:13.5px;line-height:1.5;}
   </style></head><body>
   ${pdfHeader(cycle.label)}
-  <h1>Performance Review — ${employee.name}</h1>
+  <h1>Performance Review · ${employee.name}</h1>
   <div class="meta">${employee.title} · ${employee.department} · Manager: ${mgr?mgr.name:'—'} · ${cycle.label}</div>
 
   ${mgrRev ? `<h2>Manager evaluation</h2>
@@ -3442,21 +3442,21 @@ function buildCombinedPrintable(cycle, employee){
   ${selfRev ? `<h2>Self-review</h2>
   ${SELF_FIELDS.map(f=>`<div class="block"><b>${f.label}</b><p>${escapeHtml(selfRev.answers[f.key])||'—'}</p></div>`).join('')}` : ''}
 
-  ${followUps.length ? `<h2>Follow-ups from manager</h2>${followUps.map(f=>`<div class="block"><b>${escapeHtml(f.commitment||'Check-in')} — ${f.status==='done'?'Done':'Open'}</b><p>Check-in date: ${fmtDate(f.checkpointDate)}</p></div>`).join('')}` : ''}
+  ${followUps.length ? `<h2>Follow-ups from manager</h2>${followUps.map(f=>`<div class="block"><b>${escapeHtml(f.commitment||'Check-in')} · ${f.status==='done'?'Done':'Open'}</b><p>Check-in date: ${fmtDate(f.checkpointDate)}</p></div>`).join('')}` : ''}
 
   <div class="meta" style="margin-top:30px;">Generated by Plei Performance on ${new Date().toLocaleDateString('en-US')}</div>
   </body></html>`;
 }
 function buildSelfOnlyPrintable(cycle, person){
   const selfRev = findReview('self',cycle.id,x=>x.employeeId===person.id);
-  return `<html><head><meta charset="UTF-8"><title>Self-review — ${person.name}</title>
+  return `<html><head><meta charset="UTF-8"><title>Self-review · ${person.name}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=clash-grotesk@600&display=swap">
   <style>body{font-family:'Inter',-apple-system,Arial,sans-serif;color:#0B3B2E;padding:40px;max-width:800px;margin:0 auto;}
   ${PDF_HEADER_CSS}
   h1{font-family:'Clash Grotesk','Inter',sans-serif;font-size:22px;} .meta{color:#5c7c74;font-size:13px;margin-bottom:20px;}
   .block{margin-bottom:16px;} .block b{display:block;font-size:13px;margin-bottom:3px;color:#16755C;} .block p{margin:0;font-size:13.5px;line-height:1.5;}</style>
-  </head><body>${pdfHeader(cycle.label)}<h1>Self-review — ${person.name}</h1><div class="meta">${person.title} · ${person.department} · ${cycle.label}</div>
+  </head><body>${pdfHeader(cycle.label)}<h1>Self-review · ${person.name}</h1><div class="meta">${person.title} · ${person.department} · ${cycle.label}</div>
   ${SELF_FIELDS.map(f=>`<div class="block"><b>${f.label}</b><p>${escapeHtml(selfRev.answers[f.key])||'—'}</p></div>`).join('')}
   </body></html>`;
 }
@@ -3479,8 +3479,8 @@ function buildManagerOnlyPrintable(cycle, employee){
 }
 function buildPeerPrintable(cycle, peerReview){
   const target = getPerson(peerReview.targetId);
-  const ratingsHtml = PEER_RATINGS.map(f=>`<tr><td>${f.label}</td><td><b>${peerReview.ratings[f.key]}</b>/5 — ${RATING_LABELS[peerReview.ratings[f.key]]}</td></tr>`).join('');
-  return `<html><head><meta charset="UTF-8"><title>Company wide feedback — ${target.name}</title>
+  const ratingsHtml = PEER_RATINGS.map(f=>`<tr><td>${f.label}</td><td><b>${peerReview.ratings[f.key]}</b>/5 · ${RATING_LABELS[peerReview.ratings[f.key]]}</td></tr>`).join('');
+  return `<html><head><meta charset="UTF-8"><title>Company wide feedback · ${target.name}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=clash-grotesk@600&display=swap">
   <style>body{font-family:'Inter',-apple-system,Arial,sans-serif;color:#0B3B2E;padding:40px;max-width:800px;margin:0 auto;}
@@ -3488,7 +3488,7 @@ function buildPeerPrintable(cycle, peerReview){
   h1{font-family:'Clash Grotesk','Inter',sans-serif;font-size:22px;} .meta{color:#5c7c74;font-size:13px;margin-bottom:20px;}
   table{width:100%;border-collapse:collapse;margin:10px 0;} td{padding:6px 4px;border-bottom:1px solid #eee;font-size:13.5px;}
   .block{margin-bottom:16px;} .block b{display:block;font-size:13px;margin-bottom:3px;color:#16755C;} .block p{margin:0;font-size:13.5px;line-height:1.5;}</style>
-  </head><body>${pdfHeader(cycle.label)}<h1>Company wide feedback — about ${target.name}</h1>
+  </head><body>${pdfHeader(cycle.label)}<h1>Company wide feedback, about ${target.name}</h1>
   <div class="meta">Submitted by you (kept anonymous to ${target.name}) · ${cycle.label}</div>
   <table>${ratingsHtml}</table>
   ${PEER_FIELDS.map(f=>`<div class="block"><b>${f.label}</b><p>${escapeHtml(peerReview.answers[f.key])||'—'}</p></div>`).join('')}
@@ -3499,7 +3499,7 @@ function buildDeptSummaryPrintable(s){
   const entries = s.entries || [];
   const entriesHtml = entries.length ? `<table style="width:100%;border-collapse:collapse;margin:10px 0;"><thead><tr><th>Name</th><th>Manager</th><th>PIP</th><th>Concerns</th><th>Feedback</th></tr></thead><tbody>${entries.map(e=>`<tr><td><b>${escapeHtml(e.name)}</b></td><td>${escapeHtml(e.manager)||'-'}</td><td>${escapeHtml(pipLabel[e.pipStatus]||'No action')}</td><td>${escapeHtml(e.concerns)||'-'}</td><td>${escapeHtml(e.feedback)||'-'}</td></tr>`).join('')}</tbody></table>` : '<p><i>No individual flags for this period.</i></p>';
   const block = (label, text)=> text ? `<div class="block"><b>${label}</b><p>${escapeHtml(text).replace(/\n/g,'<br>')}</p></div>` : '';
-  return `<html><head><meta charset="UTF-8"><title>Performance Review Summary — ${escapeHtml(s.department)}</title>
+  return `<html><head><meta charset="UTF-8"><title>Performance Review Summary · ${escapeHtml(s.department)}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=clash-grotesk@600&display=swap">
   <style>
@@ -3512,7 +3512,7 @@ function buildDeptSummaryPrintable(s){
     .block{margin-bottom:16px;} .block b{display:block;font-size:13px;margin-bottom:3px;color:#16755C;} .block p{margin:0;font-size:13.5px;line-height:1.5;}
   </style></head><body>
   ${pdfHeader(s.reviewPeriod || '')}
-  <h1>${escapeHtml(s.department)} — Performance Review Summary</h1>
+  <h1>${escapeHtml(s.department)} · Performance Review Summary</h1>
   <div class="meta">Department head: ${escapeHtml(s.departmentManager)||'-'}${s.reviewPeriod?' · '+escapeHtml(s.reviewPeriod):''}</div>
   ${block('Overview', s.overview)}
   <h3>Individual flags</h3>
@@ -3573,7 +3573,7 @@ function bindViewEvents(role, nav, cycle, person){
   document.getElementById('openCanonicalDeptSettingsBtn')?.addEventListener('click', ()=>canonicalDeptSettingsModal());
   document.getElementById('openLoginSettingsBtn')?.addEventListener('click', ()=>loginSettingsModal());
 
-  // Department Report (single edition — admin authors per department via tabs, a manager only
+  // Department Report (single edition, admin authors per department via tabs, a manager only
   // ever sees their own, read-only once published).
   document.querySelectorAll('[data-dept-tab]').forEach(el=>el.addEventListener('click', ()=>{ STATE.deptSummaryDept = el.dataset.deptTab; render(); }));
   document.querySelectorAll('textarea[data-autosave-id="dsSummary"]').forEach(el=>{
@@ -3625,7 +3625,7 @@ function bindViewEvents(role, nav, cycle, person){
     if(head) candidateIds.add(head.id);
     entries.forEach(e=>{ if(e.person && e.person.managerId) candidateIds.add(e.person.managerId); });
     const candidates = Array.from(candidateIds).map(id=>getPerson(id)).filter(Boolean).filter(p=>p.email);
-    if(!candidates.length){ alert('No manager with an email on file for ' + dept + ' — set one on the org chart before publishing.'); return; }
+    if(!candidates.length){ alert('No manager with an email on file for ' + dept + ', set one on the org chart before publishing.'); return; }
     const rowsHtml = candidates.map(p=>`<label style="display:flex;align-items:center;gap:8px;padding:6px 0;"><input type="checkbox" class="pubRecipient" value="${escapeHtml(p.id)}" ${head && p.id===head.id?'checked':''}><span>${escapeHtml(p.name)} <span class="muted small">(${escapeHtml(p.email)})</span></span></label>`).join('');
     const modalHtml = `
   <div class="modal-bg no-print" id="publishModalBg">
@@ -3659,7 +3659,7 @@ function bindViewEvents(role, nav, cycle, person){
         for(const r of recipients){
           await sendGmail({
             to: r.email,
-            subject: 'Department Report — ' + dept + ' (' + cycle.label + ')',
+            subject: 'Department Report · ' + dept + ' (' + cycle.label + ')',
             bodyHtml: deptReportEmailHtml(dept, cycle, report, entries, teamScore, managerScore, r.name)
           });
         }
@@ -3678,7 +3678,7 @@ function bindViewEvents(role, nav, cycle, person){
     });
   });
 
-  // Dashboard (consolidated) — Concerns, Departments, People search/detail, Pending, Suggestion inbox.
+  // Dashboard (consolidated) · Concerns, Departments, People search/detail, Pending, Suggestion inbox.
   document.querySelectorAll('[data-open-dept-report]').forEach(el=>el.addEventListener('click', (e)=>{
     e.preventDefault();
     STATE.nav = 'deptSummaries'; STATE.deptSummaryDept = el.dataset.openDeptReport; render();
@@ -3698,7 +3698,7 @@ function bindViewEvents(role, nav, cycle, person){
         await sendGmail({
           to: mgr.email,
           subject: 'Follow-up needed: ' + p.name,
-          bodyHtml: `<p>Hi ${escapeHtml(mgr.name)},</p><p>${escapeHtml(p.name)} is flagged on the department report and needs your follow-up.</p><p>— Plei Performance HR</p>`
+          bodyHtml: `<p>Hi ${escapeHtml(mgr.name)},</p><p>${escapeHtml(p.name)} is flagged on the department report and needs your follow-up.</p><p>- Plei Performance HR</p>`
         });
         toast('Pinged ' + mgr.name);
       }catch(err){ console.error(err); alert('Could not send: ' + err.message); }
@@ -3706,6 +3706,7 @@ function bindViewEvents(role, nav, cycle, person){
     }
   }));
   document.querySelectorAll('[data-toggle-dashboard-person]').forEach(el=>el.addEventListener('click', ()=>{ const pid = el.dataset.toggleDashboardPerson; STATE.dashboardExpandedId = (STATE.dashboardExpandedId===pid) ? null : pid; render(); }));
+  document.querySelectorAll('[data-open-record]').forEach(el=>el.addEventListener('click', (ev)=>{ ev.stopPropagation(); const p = getPerson(el.dataset.openRecord); if(!p) return; STATE.dashboardPeopleSearch = p.name; STATE.dashboardExpandedId = p.id; render(); const inp = document.getElementById('dashPeopleSearch'); if(inp) inp.scrollIntoView({behavior:'smooth', block:'center'}); }));
   document.querySelectorAll('[data-toggle-dashboard-suggestion]').forEach(el=>el.addEventListener('click', ()=>{ const sid = el.dataset.toggleDashboardSuggestion; STATE.dashboardSuggestionExpandedId = (STATE.dashboardSuggestionExpandedId===sid) ? null : sid; render(); }));
   (()=>{
     const el = document.getElementById('dashPeopleSearch');
@@ -3722,8 +3723,8 @@ function bindViewEvents(role, nav, cycle, person){
     try{
       await sendGmail({
         to: p.email,
-        subject: 'Reminder: pending review items — ' + (STATE.activeCycleId ? getCycle(STATE.activeCycleId).label : ''),
-        bodyHtml: `<p>Hi ${escapeHtml(p.name)},</p><p>Just a friendly nudge that you have pending review items this cycle. Check your To-Dos in Plei Performance.</p><p>— Plei Performance HR</p>`
+        subject: 'Reminder: pending review items · ' + (STATE.activeCycleId ? getCycle(STATE.activeCycleId).label : ''),
+        bodyHtml: `<p>Hi ${escapeHtml(p.name)},</p><p>Just a friendly nudge that you have pending review items this cycle. Check your To-Dos in Plei Performance.</p><p>- Plei Performance HR</p>`
       });
       toast('Nudged ' + p.name);
     }catch(err){ console.error(err); alert('Could not send: ' + err.message); }
@@ -3739,7 +3740,7 @@ function bindViewEvents(role, nav, cycle, person){
   }));
   document.querySelectorAll('[data-convert-suggestion]').forEach(el=>el.addEventListener('click', async (ev)=>{
     ev.stopPropagation();
-    // No ClickUp integration is wired up in this app (no API/keys available) — Convert just
+    // No ClickUp integration is wired up in this app (no API/keys available) · Convert just
     // advances the suggestion's own lifecycle so HR can track that it's been picked up.
     const s = DB.suggestions.find(x=>x.id===el.dataset.convertSuggestion);
     if(!s) return;
@@ -3890,11 +3891,11 @@ function bindViewEvents(role, nav, cycle, person){
       for(const rp of recipientPeople){
         await sendGmail({
           to: rp.email,
-          subject: 'Upward feedback summary ready — ' + cycle.label,
+          subject: 'Upward feedback summary ready · ' + cycle.label,
           bodyHtml: '<p>Hi ' + rp.name + ',</p>' +
             '<p>HR has published an upward feedback summary for <b>' + manager.name + '</b> (' + cycle.label + ') in Plei Performance.</p>' +
             '<p>You can view it under the Upward Feedback section in the app.</p>' +
-            '<p>— Plei Performance HR</p>'
+            '<p>- Plei Performance HR</p>'
         });
       }
     }catch(e){ console.error('sendGmail (upward summary published) failed:', e); }
@@ -3921,11 +3922,11 @@ function bindViewEvents(role, nav, cycle, person){
       for(const rp of recipients){
         await sendGmail({
           to: rp.email,
-          subject: 'Company wide feedback summary ready — ' + cycle.label,
+          subject: 'Company wide feedback summary ready · ' + cycle.label,
           bodyHtml: '<p>Hi ' + escapeHtml(rp.name) + ',</p>' +
             '<p>HR has published a company wide feedback summary for <b>' + escapeHtml(target.name) + '</b> (' + escapeHtml(cycle.label) + ') in Plei Performance.</p>' +
             '<p>You can view it under My Profile in the app.</p>' +
-            '<p>— Plei Performance HR</p>'
+            '<p>- Plei Performance HR</p>'
         });
       }
     }catch(e){ console.error('sendGmail (company wide summary published) failed:', e); }
@@ -4014,7 +4015,7 @@ function oneOnOneScheduleModal(cycle, manager, employee){
   const modalHtml = `<div class="modal-bg no-print" id="oneOnOneModalBg">
     <div class="modal">
       <span class="close-x" id="closeOneOnOneModal">✕</span>
-      <h3>Schedule 1:1 — ${employee.name}</h3>
+      <h3>Schedule 1:1 · ${employee.name}</h3>
       <div class="desc">${cycle.label} · This creates a real Google Calendar event on your calendar and sends an invite to ${employee.name} (${employee.email}).</div>
       <div class="field"><label>Date & time</label><input type="datetime-local" id="o1_datetime" value="${defaultDT}"></div>
       <div class="field"><label>Duration (minutes)</label><input type="number" id="o1_duration" value="${existing&&existing.durationMinutes?existing.durationMinutes:ONE_ON_ONE_DEFAULT_MINUTES}" min="15" step="5"></div>
@@ -4040,7 +4041,7 @@ function oneOnOneScheduleModal(cycle, manager, employee){
         gcalEvent = await patchGcalEvent(existing.gcalEventId, {startISO, durationMinutes:dur});
       } else {
         gcalEvent = await createGcalEvent({
-          summary: '1:1 — Review feedback: ' + manager.name + ' & ' + employee.name,
+          summary: '1:1 · Review feedback: ' + manager.name + ' & ' + employee.name,
           description: 'Performance review feedback conversation for ' + cycle.label + '. Scheduled from Plei Performance.',
           startISO, durationMinutes: dur,
           attendeeEmails: [manager.email, employee.email]
@@ -4056,7 +4057,7 @@ function oneOnOneScheduleModal(cycle, manager, employee){
         updatedAt: new Date().toISOString()
       }, {merge:true});
       document.getElementById('oneOnOneModalBg').remove();
-      toast('1:1 scheduled — invite sent'); render();
+      toast('1:1 scheduled, invite sent'); render();
     }catch(e){
       btn.disabled = false; btn.textContent = originalLabel;
       errEl.textContent = e.message || 'Could not schedule the meeting. Please try again.';
@@ -4105,12 +4106,12 @@ function bindManagerFormEvents(cycle, manager, employee){
         subject: 'Your ' + cycle.label + ' review is ready',
         bodyHtml: '<p>Hi ' + employee.name + ',</p>' +
           '<p><b>' + manager.name + '</b> has submitted your manager review for <b>' + cycle.label + '</b> in Plei Performance.</p>' +
-          '<p>Your manager will reach out to schedule a short 1:1 to walk through it together — this is a required step every cycle.</p>' +
+          '<p>Your manager will reach out to schedule a short 1:1 to walk through it together, this is a required step every cycle.</p>' +
           '<p>You can check your review and the 1:1 status any time under My Profile in Plei Performance.</p>' +
-          '<p>— Plei Performance</p>'
+          '<p>- Plei Performance</p>'
       });
     }catch(e){ console.error('sendGmail (review submitted) failed:', e); }
-    toast('Review submitted — don\'t forget to schedule the 1:1 debrief'); render();
+    toast('Review submitted, don\'t forget to schedule the 1:1 debrief'); render();
   });
   host.querySelector('#saveDraftManagerReview')?.addEventListener('click', async ()=>{ await upsert('draft'); clearLocalDraft(dKey); toast('Draft saved'); });
 }
@@ -4148,16 +4149,16 @@ function bindSelfFormEvents(cycle, person){
         try{
           await sendGmail({
             to: mgr.email,
-            subject: escapeHtml(person.name) + "'s self-review is ready — " + cycle.label,
+            subject: escapeHtml(person.name) + "'s self-review is ready · " + cycle.label,
             bodyHtml: '<p>Hi ' + escapeHtml(mgr.name) + ',</p>' +
               '<p><b>' + escapeHtml(person.name) + '</b> has submitted their self-review for <b>' + escapeHtml(cycle.label) + '</b> in Plei Performance.</p>' +
               '<p>You can read it before writing your manager review under My Team.</p>' +
-              '<p>— Plei Performance</p>'
+              '<p>- Plei Performance</p>'
           });
         }catch(e){ console.error('sendGmail (self-review submitted) failed:', e); }
       }
     }
-    toast('Self-review submitted — your manager can now read it');
+    toast('Self-review submitted, your manager can now read it');
     render();
   });
   draftBtn?.addEventListener('click', async ()=>{ await upsert('draft'); clearLocalDraft(dKey); toast('Draft saved'); });
@@ -4235,7 +4236,7 @@ function bindPeerFormEvents(cycle, person){
       toast('Feedback submitted anonymously');
       STATE.cwDept = null; STATE.cwTarget = null;
       render();
-    } catch(e){ console.error(e); alert('Could not submit — please try again.'); submitBtn.disabled = false; }
+    } catch(e){ console.error(e); alert('Could not submit, please try again.'); submitBtn.disabled = false; }
   });
 }
 
@@ -4291,7 +4292,7 @@ function bindUpwardFormEvents(cycle, person){
         clearLocalDraft(dKey);
         toast('Review submitted anonymously to HR'); render();
       }
-    } catch(e){ console.error(e); alert('Could not submit — please try again.'); submitBtn.disabled = false; }
+    } catch(e){ console.error(e); alert('Could not submit, please try again.'); submitBtn.disabled = false; }
   });
 }
 function bindSuggestFormEvents(person){
@@ -4312,7 +4313,7 @@ function bindSuggestFormEvents(person){
     const suggId = uid('sg');
     await fdb.collection('suggestions').doc(suggId).set({cycleId:STATE.activeCycleId, anonymous:anon, authorName:anon?'':person.name,
       category:catEl.value, text, createdAt:new Date().toISOString().slice(0,10)});
-    // Tracked separately from the (possibly anonymous) suggestion itself — only used to derive
+    // Tracked separately from the (possibly anonymous) suggestion itself, only used to derive
     // this person's own Kudos to-do completion, never exposed to anyone else.
     await fdb.collection('suggestion_authorship').doc(suggId).set({
       suggestionId: suggId, authorEmail: person.email, cycleId: STATE.activeCycleId, createdAt: new Date().toISOString()
