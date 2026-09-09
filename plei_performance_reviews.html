@@ -739,6 +739,7 @@ let STATE = {
   autosaveFocusId: null,
   dashboardPeopleSearch: '',
   dashboardPeopleDetailId: null,
+  deptGroupOpen: {},
   dashboardExpandedId: null,
   dashboardSuggestionExpandedId: null,
   mreportsManagerId: null,
@@ -1986,7 +1987,8 @@ function deptHeadFor(dept){
 // Performance Review Summaries only ever roll up to the org's 4 VPs (Growth, Product, Engineering,
 // Operations) plus Magic · Magic sits under Growth on the reporting line (Stephanie reports to Alan)
 // but is carved out as its own summary group since Stephanie runs it independently.
-const DEPT_SUMMARY_GROUPS = ['Growth','Product','Engineering','Operations','Magic'];
+// Departments are the CEO's direct subtrees. Magic lives inside Growth (Stephanie reports to Alan).
+const DEPT_SUMMARY_GROUPS = ['Growth','Product','Engineering','Operations'];
 
 // Everyone who should show up in a summary group's "Individual flags" table: anyone tagged straight
 // to that group (regardless of who they happen to report to day-to-day, e.g. someone in Magic who
@@ -1999,7 +2001,6 @@ const DEPT_SUMMARY_GROUPS = ['Growth','Product','Engineering','Operations','Magi
 function summaryGroupMembers(group){
   const head = deptHeadFor(group);
   if(!head) return [];
-  const magicHead = group!=='Magic' ? deptHeadFor('Magic') : null;
   return DB.people.filter(p=>{
     if(p.deactivated) return false;
     if(p.canonicalDept) return p.canonicalDept===group;
@@ -2007,9 +2008,7 @@ function summaryGroupMembers(group){
     if(p.department===group) return true;
     if(p.department && DEPT_SUMMARY_GROUPS.includes(p.department) && p.department!==group) return false;
     const chain = managerChainOf(p.id);
-    if(!chain.includes(head.id)) return false;
-    if(magicHead && (p.id===magicHead.id || chain.includes(magicHead.id))) return false;
-    return true;
+    return chain.includes(head.id);
   });
 }
 
@@ -2524,7 +2523,13 @@ function deptReportEntryFor(person, cycle, report){
   const upwardScore = hasReports(person.id) ? upwardAverageFor(person.id, cycle.id) : null;
   const upwardSummary = hasReports(person.id) ? upwardSummaryFor(person.id, cycle.id) : null;
   const reportPublished = report.status==='published';
-  const admin = (report.people && report.people[person.id]) || {};
+  let admin = (report.people && report.people[person.id]) || null;
+  if(!admin){
+    // Fallback: entries authored when this person sat under a differently-keyed report doc
+    // (e.g. the old standalone Magic department) stay readable after the org regrouping.
+    for(const d of (DB.deptSummaries||[])){ if(d.people && d.people[person.id] && (d.people[person.id].recommendation || (d.people[person.id].status && d.people[person.id].status!=='no'))){ admin = d.people[person.id]; break; } }
+  }
+  admin = admin || {};
   const status = admin.status || 'no';
   const recommendation = admin.recommendation || '';
   const inTheirWords = selfDone
@@ -2679,8 +2684,34 @@ function viewDeptReport(dept, cycle, person, isAdmin){
   </div>
 
   <div class="panel">
-    <h3 class="ph">PEOPLE<span class="hint">click a person to expand their full record</span></h3>
-    ${entries.length===0 ? '<div class="empty" style="padding:16px;">No one to report on in this department.</div>' : entries.map(e=>dashboardPersonRowHtml(e, cycle, isAdmin)).join('')}
+    <h3 class="ph">PEOPLE<span class="hint">grouped by manager · click a team to collapse · click a person for their record</span></h3>
+    ${entries.length===0 ? '<div class="empty" style="padding:16px;">No one to report on in this department.</div>' : (function(){
+      // Group by direct manager, ordered by depth in the org (head's directs first, then sub-teams).
+      const groupsMap = new Map();
+      entries.forEach(e=>{ const m = e.person ? (e.person.managerId||'') : ''; if(!groupsMap.has(m)) groupsMap.set(m, []); groupsMap.get(m).push(e); });
+      const mgrOrder = Array.from(groupsMap.keys()).sort((a,b)=>{
+        const da = a?managerChainOf(a).length:0, db2 = b?managerChainOf(b).length:0;
+        if(da!==db2) return da-db2;
+        const na = a&&getPerson(a)?getPerson(a).name:'', nb = b&&getPerson(b)?getPerson(b).name:'';
+        return na.localeCompare(nb);
+      });
+      if(mgrOrder.length<2) return entries.map(e=>dashboardPersonRowHtml(e, cycle, isAdmin)).join('');
+      return mgrOrder.map(mid=>{
+        const mgr = mid ? getPerson(mid) : null;
+        const group = groupsMap.get(mid);
+        const done = group.filter(e=>e.mgrDone).length;
+        const scoredG = group.filter(e=>e.score!=null);
+        const gAvg = scoredG.length ? avg(scoredG.map(e=>e.score)) : null;
+        const key = 'dg_'+dept+'_'+(mid||'none');
+        const open = STATE.deptGroupOpen[key]!==false;
+        const title = mgr ? (head && mgr.id===head.id ? 'Reports directly to '+escapeHtml(mgr.name.split(' ')[0]) : escapeHtml(mgr.name)+"'s team") : 'No manager set';
+        return `<div class="prow" data-toggle-dept-group="${key}" style="background:#f4f7f5;cursor:pointer;">
+          <div class="who"><b>${title}</b><span>${group.length} ${group.length===1?'person':'people'} · ${done}/${group.length} reviews in</span></div>
+          ${scoreBadge(gAvg)}
+          <span class="pchev">${open?'▲':'▼'}</span>
+        </div>` + (open ? group.map(e=>dashboardPersonRowHtml(e, cycle, isAdmin)).join('') : '');
+      }).join('');
+    })()}
   </div>`;
 }
 
@@ -3811,6 +3842,7 @@ function bindViewEvents(role, nav, cycle, person){
     }
   }));
   document.querySelectorAll('[data-toggle-dashboard-person]').forEach(el=>el.addEventListener('click', ()=>{ const pid = el.dataset.toggleDashboardPerson; STATE.dashboardExpandedId = (STATE.dashboardExpandedId===pid) ? null : pid; render(); }));
+  document.querySelectorAll('[data-toggle-dept-group]').forEach(el=>el.addEventListener('click', (ev)=>{ if(ev.target.closest('[data-toggle-dashboard-person]')) return; const k = el.dataset.toggleDeptGroup; STATE.deptGroupOpen[k] = STATE.deptGroupOpen[k]===false ? true : false; render(); }));
   document.querySelectorAll('[data-open-record]').forEach(el=>el.addEventListener('click', (ev)=>{ ev.stopPropagation(); const p = getPerson(el.dataset.openRecord); if(!p) return; STATE.dashboardPeopleSearch = p.name; STATE.dashboardExpandedId = p.id; render(); const inp = document.getElementById('dashPeopleSearch'); if(inp) inp.scrollIntoView({behavior:'smooth', block:'center'}); }));
   document.querySelectorAll('[data-toggle-dashboard-suggestion]').forEach(el=>el.addEventListener('click', ()=>{ const sid = el.dataset.toggleDashboardSuggestion; STATE.dashboardSuggestionExpandedId = (STATE.dashboardSuggestionExpandedId===sid) ? null : sid; render(); }));
   (()=>{
