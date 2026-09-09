@@ -2840,9 +2840,7 @@ function myTeamPersonRowHtml(e, cycle, isHR){
 function viewMyTeam(cycle, person){
   const headGroup = DEPT_SUMMARY_GROUPS.find(g=>(deptHeadFor(g)||{}).id===person.id);
   const isHead = !!headGroup;
-  const members = isHead
-    ? Array.from(new Map([...summaryGroupMembers(headGroup).filter(p=>p.id!==person.id), ...directReports(person.id)].map(p=>[p.id,p])).values())
-    : directReports(person.id);
+  const members = directReports(person.id);
 
   const entries = members.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(p=>{
     const g = isHead ? (deptGroupFor(p.id) || headGroup) : deptGroupFor(p.id);
