@@ -2750,7 +2750,7 @@ function myTeamPersonSectionsHtml(e, cycle, isHR){
         <div class="pf"><b>THEMES</b><p>${escapeHtml(summary.themes)||'No themes recorded.'}</p></div>`;
       parts.push(myTeamSectionHtml('up_'+p.id, 'Team feedback · upward', 'done', (summary.responseCount||0)+' responses', body));
     } else {
-      parts.push(myTeamSectionHtml('up_'+p.id, 'Team feedback · upward', 'pending', count+' collected, not published yet', ''));
+      parts.push(myTeamSectionHtml('up_'+p.id, 'Team feedback · upward', 'pending', 'Not published yet', ''));
     }
   }
 
