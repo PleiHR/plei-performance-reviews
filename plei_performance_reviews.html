@@ -713,6 +713,7 @@ function startBaseListeners(onFirstLoad){
     const d = doc.data() || {};
     DB.settings = {companyDomain: d.companyDomain || 'plei.com'};
     DB.departments = d.departments || [];
+    DB.canonicalDepartments = d.canonicalDepartments || ['Growth','Magic','Product','Engineering','Operations'];
     done('settings');
     if(DB_LOADED) render();
   }, e=>{ console.error(e); done('settings'); });
@@ -1635,8 +1636,14 @@ function personModal(existingId){
       <div class="field"><label>Name</label><input type="text" id="pp_name" value="${p?p.name:''}"></div>
       <div class="field"><label>Email</label><div class="hint">Must match your company Google domain (${DB.settings.companyDomain}) so they can sign in.</div><input type="email" id="pp_email" value="${p?p.email:''}"></div>
       <div class="field"><label>Title</label><input type="text" id="pp_title" value="${p?p.title:''}"></div>
-      <div class="field"><label>Department</label>
+      <div class="field"><label>Team</label><div class="hint">Sub-team or squad (e.g. Marketing, Partnerships). Manage the list via the Departments button.</div>
         <select id="pp_dept">${DB.departments.map(d=>`<option value="${d}" ${p&&p.department===d?'selected':''}>${d}</option>`).join('')}</select>
+      </div>
+      <div class="field"><label>Department</label><div class="hint">One of the 5 groups used for Department Reports. Leave blank to auto-detect from the org chart.</div>
+        <select id="pp_canonical_dept">
+          <option value="">— Auto-detect —</option>
+          ${DB.canonicalDepartments.map(d=>`<option value="${d}" ${p&&p.canonicalDept===d?'selected':''}>${d}</option>`).join('')}
+        </select>
       </div>
       <div class="field"><label>Role</label>
         <select id="pp_role">
@@ -1664,7 +1671,8 @@ function personModal(existingId){
     const data = {
       name, email,
       title:document.getElementById('pp_title').value.trim(), department:document.getElementById('pp_dept').value,
-      role:document.getElementById('pp_role').value, managerId:document.getElementById('pp_mgr').value||null
+      role:document.getElementById('pp_role').value, managerId:document.getElementById('pp_mgr').value||null,
+      canonicalDept:document.getElementById('pp_canonical_dept').value||null
     };
     if(p){
       const batch = fdb.batch();
@@ -1843,6 +1851,72 @@ async function deleteDept(name){
   toast('Department deleted'); render();
 }
 
+function canonicalDeptModal(existingName){
+  const modalHtml = `
+  <div class="modal-bg no-print" id="canonicalDeptModalBg">
+    <div class="modal">
+      <span class="close-x" id="closeCanonicalDeptModal">✕</span>
+      <h3>${existingName?'Rename department':'Add department'}</h3>
+      <div class="field"><label>Department name</label><input type="text" id="cdept_name" value="${existingName||''}"></div>
+      <button class="btn" id="saveCanonicalDeptBtn" style="width:100%;">Save</button>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+  document.getElementById('closeCanonicalDeptModal').addEventListener('click', ()=>document.getElementById('canonicalDeptModalBg').remove());
+  document.getElementById('saveCanonicalDeptBtn').addEventListener('click', async ()=>{
+    const name = document.getElementById('cdept_name').value.trim();
+    if(!name){ alert('Please enter a department name.'); return; }
+    if(DB.canonicalDepartments.includes(name) && name!==existingName){ alert('That department already exists.'); return; }
+    if(existingName){
+      const affected = DB.people.filter(p=>p.canonicalDept===existingName);
+      const batch = fdb.batch();
+      batch.set(fdb.collection('settings').doc('main'), {companyDomain:DB.settings.companyDomain, canonicalDepartments:DB.canonicalDepartments.map(d=>d===existingName?name:d)}, {merge:true});
+      affected.forEach(p=>{ batch.update(fdb.collection('people').doc(p.id), {canonicalDept:name}); });
+      await batch.commit();
+    } else {
+      await fdb.collection('settings').doc('main').set({companyDomain:DB.settings.companyDomain, canonicalDepartments:[...DB.canonicalDepartments, name]}, {merge:true});
+    }
+    document.getElementById('canonicalDeptModalBg').remove(); toast('Department saved'); render();
+  });
+}
+
+async function deleteCanonicalDept(name){
+  const count = DB.people.filter(p=>p.canonicalDept===name).length;
+  if(count>0){ alert(`Can't delete "${name}": ${count} ${count===1?'person is':'people are'} still assigned to it. Reassign them from the person editor first.`); return; }
+  if(!confirm(`Delete the "${name}" department?`)) return;
+  await fdb.collection('settings').doc('main').set({companyDomain:DB.settings.companyDomain, canonicalDepartments:DB.canonicalDepartments.filter(d=>d!==name)}, {merge:true});
+  toast('Department deleted'); render();
+}
+
+function canonicalDeptSettingsModal(){
+  const modalHtml = `
+  <div class="modal-bg no-print" id="canonicalDeptSettingsModalBg">
+    <div class="modal">
+      <span class="close-x" id="closeCanonicalDeptSettingsModal">✕</span>
+      <div class="row" style="justify-content:space-between;align-items:center;">
+        <h3 style="margin:0;">Departments (canonical)</h3>
+        <button class="btn secondary sm" id="canonicalDeptSettingsAddBtn">+ Add department</button>
+      </div>
+      <div class="desc">The 5 groups used for Department Reports and summaries. People are auto-detected into a group from the org chart unless assigned here explicitly.</div>
+      <div class="row" style="flex-wrap:wrap;gap:8px;margin-top:6px;">
+        ${DB.canonicalDepartments.map(d=>{
+          const count = DB.people.filter(p=>p.canonicalDept===d).length;
+          return `<div class="dept-tag">
+            <span>${escapeHtml(d)} <span class="muted small">(${count})</span></span>
+            <button class="btn ghost sm" data-canonical-dept-edit="${escapeHtml(d)}">Edit</button>
+            <button class="btn ghost sm" data-canonical-dept-delete="${escapeHtml(d)}">Delete</button>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+  document.getElementById('closeCanonicalDeptSettingsModal').addEventListener('click', ()=>document.getElementById('canonicalDeptSettingsModalBg').remove());
+  document.getElementById('canonicalDeptSettingsAddBtn').addEventListener('click', ()=>canonicalDeptModal(null));
+  document.querySelectorAll('[data-canonical-dept-edit]').forEach(el=>el.addEventListener('click', ()=>canonicalDeptModal(el.dataset.canonicalDeptEdit)));
+  document.querySelectorAll('[data-canonical-dept-delete]').forEach(el=>el.addEventListener('click', ()=>deleteCanonicalDept(el.dataset.canonicalDeptDelete)));
+}
+
 
 function deptSummariesFor(dept){ return DB.deptSummaries.filter(s=>s.department===dept).sort((a,b)=>(b.updatedAt||'').localeCompare(a.updatedAt||'')); }
 
@@ -1913,6 +1987,7 @@ function summaryGroupMembers(group){
   const magicHead = group!=='Magic' ? deptHeadFor('Magic') : null;
   return DB.people.filter(p=>{
     if(p.deactivated) return false;
+    if(p.canonicalDept) return p.canonicalDept===group;
     if(p.id===head.id) return true;
     if(p.department===group) return true;
     if(p.department && DEPT_SUMMARY_GROUPS.includes(p.department) && p.department!==group) return false;
@@ -2269,6 +2344,7 @@ function viewCyclePeople(cycle){
       <div><h2>People</h2><div class="desc">Roster, reporting lines, and access. This data model has no hire-date field yet, so new-hire exclusions aren't tracked here.</div></div>
       <div class="row" style="gap:8px;">
         <button class="btn ghost sm" id="openDeptSettingsBtn">Departments</button>
+        <button class="btn ghost sm" id="openCanonicalDeptSettingsBtn">Departments (canonical)</button>
         <button class="btn" id="newPersonBtn">+ Add person</button>
       </div>
     </div>
@@ -3491,6 +3567,7 @@ function bindViewEvents(role, nav, cycle, person){
   // Cycle & People: restored entry points for department management and login (Google domain)
   // settings, previously in viewOrg. Same underlying deptModal/deleteDept/companyDomain logic.
   document.getElementById('openDeptSettingsBtn')?.addEventListener('click', ()=>deptSettingsModal());
+  document.getElementById('openCanonicalDeptSettingsBtn')?.addEventListener('click', ()=>canonicalDeptSettingsModal());
   document.getElementById('openLoginSettingsBtn')?.addEventListener('click', ()=>loginSettingsModal());
 
   // Department Report (single edition — admin authors per department via tabs, a manager only
