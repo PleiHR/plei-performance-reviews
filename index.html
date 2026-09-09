@@ -1488,7 +1488,7 @@ function dashboardDeptRowHtml(g, cycle){
     </div>`,
     ...subMgrs.map(m=>{
       const mr = mgrReportFor(m.id);
-      const teamCount = entries.filter(e=>{ if(!e.person||e.person.id===m.id) return false; return e.person.managerId===m.id || managerChainOf(e.person.id).includes(m.id); }).length;
+      const teamCount = entries.filter(e=>e.person && e.person.managerId===m.id).length;
       return `<div class="prow" style="padding-left:34px;background:#fbfdfc;">
         <div class="who"><b>${escapeHtml(m.name)}</b><span>their team · ${teamCount} people</span></div>
         <span class="stpill ${mr.status==='published'?'ok':'neutral'}">${mr.status==='published'?'✓ Published':'Draft'}</span>
@@ -2166,7 +2166,7 @@ function viewTodos(cycle, person){
       const notesPending = heldOnes.filter(r=>{ const n = oneOnOneNotesFor(r.id, cycle.id); return !(n && n.notes && n.notes.trim()); }).length;
       rows1.push(todoRowHtml({
         done: notesPending===0,
-        label: `Log 1:1 notes · ${notesPending} remaining · nothing to note? write NA`,
+        label: `Log 1:1 call notes · ${notesPending} remaining · nothing to note? write NA`,
         pillHtml: notesPending===0 ? '<span class="stpill ok">Completed</span>' : '<span class="stpill warn">After each 1:1</span>',
         actionLabel: 'Log', actionAttr: 'data-nav="myteam"'
       }));
@@ -2553,12 +2553,21 @@ function deptReportEntryFor(person, cycle, report){
   const upwardSummary = hasReports(person.id) ? upwardSummaryFor(person.id, cycle.id) : null;
   const reportPublished = report.status==='published' || (DB.deptSummaries||[]).some(d=>d.status==='published' && d.managerId && (person.managerId===d.managerId || managerChainOf(person.id).includes(d.managerId)));
   let admin = (report.people && report.people[person.id]) || null;
-  if(!admin){
-    // Fallback: entries authored when this person sat under a differently-keyed report doc
-    // (e.g. the old standalone Magic department) stay readable after the org regrouping.
-    for(const d of (DB.deptSummaries||[])){ if(d.people && d.people[person.id] && (d.people[person.id].recommendation || (d.people[person.id].status && d.people[person.id].status!=='no'))){ admin = d.people[person.id]; break; } }
+  // Merge with any entry authored under a differently-keyed report doc (legacy groupings,
+  // manager-scoped docs): a partial write in the current doc must never mask an existing
+  // status or recommendation stored elsewhere.
+  let adminFb = null;
+  for(const d of (DB.deptSummaries||[])){
+    if(report && d.id===report.id) continue;
+    const e = d.people && d.people[person.id];
+    if(e && ((e.status && e.status!=='no') || (e.recommendation||'').trim())){ adminFb = e; break; }
   }
-  admin = admin || {};
+  if(!admin) admin = adminFb || {};
+  else if(adminFb){
+    admin = Object.assign({}, admin);
+    if((!admin.status || admin.status==='no') && adminFb.status && adminFb.status!=='no') admin.status = adminFb.status;
+    if(!(admin.recommendation||'').trim() && (adminFb.recommendation||'').trim()) admin.recommendation = adminFb.recommendation;
+  }
   const status = admin.status || 'no';
   const recommendation = admin.recommendation || '';
   const inTheirWords = selfDone
@@ -2676,8 +2685,10 @@ function viewDeptReport(dept, cycle, person, isAdmin){
   const scoped = !!selMgrId;
   const head = scoped ? getPerson(selMgrId) : deptHead;
   const report = scoped ? mgrReportFor(selMgrId) : deptDoc;
+  // A manager's report covers their DIRECT reports only. People below their sub-managers
+  // belong in those sub-managers' own reports, never surfaced up a level.
   const entries = scoped
-    ? allEntries.filter(e=>{ if(!e.person||e.person.id===selMgrId) return false; const ch=managerChainOf(e.person.id); return e.person.managerId===selMgrId || ch.includes(selMgrId); })
+    ? allEntries.filter(e=>e.person && e.person.managerId===selMgrId)
     : allEntries;
   const headMgrRev = head ? findReview('manager', cycle.id, x=>x.employeeId===head.id && x.status==='submitted') : null;
   const managerScore = head ? scoreFor(head, cycle) : null;
@@ -2713,7 +2724,7 @@ function viewDeptReport(dept, cycle, person, isAdmin){
     <div class="row" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
       <div>
         <h2 style="margin:0;">${scoped ? escapeHtml(head.name)+' · manager report' : escapeHtml(dept)+' · department report'}</h2>
-        <div class="desc" style="margin:4px 0 0;">${escapeHtml(cycle.label)}${scoped ? ' · their team and everyone below it' : (head?' · Department head: '+escapeHtml(head.name):'')}</div>
+        <div class="desc" style="margin:4px 0 0;">${escapeHtml(cycle.label)}${scoped ? ' · their direct reports' : (head?' · Department head: '+escapeHtml(head.name):'')}</div>
       </div>
       <div class="row" style="gap:10px;">
         <span class="stpill ${published?'ok':'warn'}">${published?'Published':'Draft'}</span>
@@ -2907,7 +2918,7 @@ function myTeamTimelineHtml(e, cycle){
   if(!o1 || o1.status==='pending') items.push({label:'1:1', val:'not yet', miss:true});
   else if(o1.status==='scheduled') items.push({label:'1:1', val:'scheduled '+fmtDateTime(o1.scheduledAt), miss:true});
   else items.push({label:'1:1 held', val:fmtDateTime(o1.completedAt), miss:false});
-  if(o1 && o1.status==='completed'){ const nr = oneOnOneNotesFor(p.id, cycle.id); items.push(nr && nr.notes && nr.notes.trim() ? {label:'1:1 notes', val:'logged', miss:false} : {label:'1:1 notes', val:'not yet', miss:true}); }
+  if(o1 && o1.status==='completed'){ const nr = oneOnOneNotesFor(p.id, cycle.id); items.push(nr && nr.notes && nr.notes.trim() ? {label:'1:1 call notes', val:'logged', miss:false} : {label:'1:1 call notes', val:'not yet', miss:true}); }
   return `<div class="ptl">${items.map(it=>`<div class="${it.miss?'miss':''}"><span>${escapeHtml(it.label)}</span><b>${escapeHtml(it.val)}</b></div>`).join('')}</div>`;
 }
 
@@ -2949,7 +2960,7 @@ function myTeamPersonSectionsHtml(e, cycle, isHR){
     </div>`;
     const nst = notesVal.trim() ? 'done' : (held ? 'alert' : 'pending');
     const ncap = notesVal.trim() ? ('logged'+(noteRec&&noteRec.notesAt?' '+fmtDate(noteRec.notesAt.slice(0,10)):'')) : (held ? 'not logged yet' : 'after the 1:1');
-    parts.push(myTeamSectionHtml('o1n_'+p.id, '1:1 notes', nst, ncap, nbody));
+    parts.push(myTeamSectionHtml('o1n_'+p.id, '1:1 call notes', nst, ncap, nbody));
   }
 
   if(hasReports(p.id)){
@@ -2980,9 +2991,12 @@ function myTeamPersonSectionsHtml(e, cycle, isHR){
         <div style="padding:10px 14px 12px;"><span class="actbtn" data-publish-summary="${p.id}">${summary&&summary.published?'Update published summary':'Publish summary'}</span></div>`;
       parts.push(myTeamSectionHtml('up_'+p.id, 'Team feedback · upward', 'done', (summary&&summary.published?'published · ':'draft · ')+count+' collected', body));
     } else if(summary && summary.published){
-      const body = `<div class="pdims"><span>Average <b>${e.upwardScore!==null?e.upwardScore.toFixed(1):'—'}</b></span><span>Responses <b>${summary.responseCount||0}</b></span></div>
-        <div class="pf"><b>THEMES</b><p>${escapeHtml(summary.themes)||'No themes recorded.'}</p></div>`;
-      parts.push(myTeamSectionHtml('up_'+p.id, 'Team feedback · upward', 'done', (summary.responseCount||0)+' responses', body));
+      // Below the anonymity minimum, publish themes only: no average and no response count,
+      // so nobody can back out an individual's rating from the math.
+      const lowN = (summary.responseCount||0) < ANONYMITY_MIN;
+      const body = (lowN ? '' : `<div class="pdims"><span>Average <b>${e.upwardScore!==null?e.upwardScore.toFixed(1):'—'}</b></span><span>Responses <b>${summary.responseCount||0}</b></span></div>`) +
+        `<div class="pf"><b>THEMES</b><p>${escapeHtml(summary.themes)||'No themes recorded.'}</p></div>`;
+      parts.push(myTeamSectionHtml('up_'+p.id, 'Team feedback · upward', 'done', lowN ? 'themes only' : (summary.responseCount||0)+' responses', body));
     } else {
       parts.push(myTeamSectionHtml('up_'+p.id, 'Team feedback · upward', 'pending', 'Not published yet', ''));
     }
@@ -3010,7 +3024,7 @@ function myTeamPersonSectionsHtml(e, cycle, isHR){
     const body = `<div class="pf"><b>HR PUBLISHED SUMMARY</b><p>${escapeHtml(peerSummary.themes)||'No summary text.'}</p></div>`;
     parts.push(myTeamSectionHtml('cwf_'+p.id, 'Company wide feedback', 'done', (peerSummary.responseCount||0)+' pieces'+(avgV!==null?' · avg '+avgV.toFixed(1):'')+'', body));
   } else {
-    parts.push(myTeamSectionHtml('cwf_'+p.id, 'Company wide feedback', 'pending', 'nothing published yet', ''));
+    // Nothing published: non-HR viewers see no company-wide section at all (no empty-state noise).
   }
 
   if(isHR){
@@ -3798,7 +3812,7 @@ function bindViewEvents(role, nav, cycle, person){
     const head = scopedMgrId ? getPerson(scopedMgrId) : deptHeadFor(dept);
     const report = deptReportFor(dept);
     let entries = deptReportEntries(dept, cycle, report);
-    if(scopedMgrId){ entries = entries.filter(e=>{ if(!e.person||e.person.id===scopedMgrId) return false; return e.person.managerId===scopedMgrId || managerChainOf(e.person.id).includes(scopedMgrId); }); }
+    if(scopedMgrId){ entries = entries.filter(e=>e.person && e.person.managerId===scopedMgrId); }
     const candidateIds = new Set();
     if(head) candidateIds.add(head.id);
     entries.forEach(e=>{ if(e.person && e.person.managerId) candidateIds.add(e.person.managerId); });
