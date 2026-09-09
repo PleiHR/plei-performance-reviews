@@ -1376,27 +1376,32 @@ function renderView(nav, cycle, person){
 // recomputing anything, a low score only ever *raises* a concern here, it never places a PIP tag;
 // only an admin can do that, from the Department Report itself.
 function dashboardConcernRows(cycle){
-  const flagged = {}; // personId -> {status, department}
+  // A concern counts as addressed once HR has written a recommendation for the person on the
+  // department report, whatever status was chosen: No action, Monitor, or PIP.
+  const touched = {}; // personId -> {status, department, recommendation}
   DEPT_SUMMARY_GROUPS.forEach(g=>{
     const report = deptReportFor(g);
     Object.keys(report.people||{}).forEach(pid=>{
-      const st = (report.people[pid]||{}).status;
-      if(st && st!=='no') flagged[pid] = {status:st, department:g, recommendation:(report.people[pid]||{}).recommendation||''};
+      const entry = report.people[pid]||{};
+      const st = entry.status;
+      const rec = (entry.recommendation||'').trim();
+      if((st && st!=='no') || rec) touched[pid] = {status:st||'no', department:g, recommendation:rec};
     });
   });
   const rows = [];
   DB.people.filter(p=>!p.deactivated).forEach(p=>{
     const mgrRev = findReview('manager', cycle.id, x=>x.employeeId===p.id && x.status==='submitted');
     const score = mgrRev ? ratingAvgOfReview(mgrRev) : null;
-    const flag = flagged[p.id];
+    const flag = touched[p.id];
     if(flag){
-      rows.push({person:p, label:(flag.status==='yes'?'PIP':'Monitor') + ', set on the ' + flag.department + ' department report', score, action:'ping', department:flag.department, recommendation:flag.recommendation});
+      rows.push({person:p, label:'', sev:flag.status==='yes'?'pip':(flag.status==='monitor'?'mon':null), score, action:flag.status==='no'?'reopen':'ping', department:flag.department, addressed:!!flag.recommendation});
     } else if(score!==null && score<3.5){
-      rows.push({person:p, label:'Low score this cycle, not yet triaged', score, action:'reopen', department:deptGroupFor(p.id)});
+      rows.push({person:p, label:'Not yet triaged', sev:null, score, action:'reopen', department:deptGroupFor(p.id), addressed:false});
     } else if(p.role!=='hr' && !p.managerId && p.title!=='CEO'){
-      rows.push({person:p, label:'No manager assigned', score:null, action:'reassign', department:null});
+      rows.push({person:p, label:'No manager assigned', sev:null, score:null, action:'reassign', department:null, addressed:false});
     }
   });
+  rows.sort((a,b)=>(a.addressed?1:0)-(b.addressed?1:0) || a.person.name.localeCompare(b.person.name));
   return rows;
 }
 function dashboardPendingRows(cycle){
@@ -1437,9 +1442,10 @@ function dashboardPersonRowHtml(e, cycle, isHR=true){
 
 function dashboardConcernRowHtml(r){
   return `<div class="prow" style="cursor:default;">
-    <div class="who"><b data-open-record="${r.person.id}" style="cursor:pointer;text-decoration:underline;text-underline-offset:3px;text-decoration-color:#bfe3cf;">${escapeHtml(r.person.name)}</b><span>${escapeHtml(r.label)}</span></div>
+    <div class="who"><b data-open-record="${r.person.id}" style="cursor:pointer;text-decoration:underline;text-underline-offset:3px;text-decoration-color:#bfe3cf;">${escapeHtml(r.person.name)}</b>${r.label?`<span>${escapeHtml(r.label)}</span>`:''}</div>
+    ${r.sev==='pip'?'<span class="sevtag pip">PIP</span>':(r.sev==='mon'?'<span class="sevtag mon">MONITOR</span>':'')}
     ${r.score!==null?scoreBadge(r.score):''}
-    ${r.recommendation && r.recommendation.trim() ? '<span class="stpill ok" style="margin-right:8px;">✓ addressed</span>' : ''}<button class="actbtn" data-concern-action="${r.action}" data-person="${r.person.id}" data-dept="${escapeHtml(r.department||'')}">Triage</button>
+    ${r.addressed ? '<span class="stpill ok" style="margin-right:8px;">✓ addressed</span>' : ''}<button class="actbtn" data-concern-action="${r.action}" data-person="${r.person.id}" data-dept="${escapeHtml(r.department||'')}">${r.addressed?'Review':'Triage'}</button>
   </div>`;
 }
 
@@ -1513,7 +1519,7 @@ function viewDashboard(cycle, person){
 
   return `
   <div class="grid grid-4">
-    <div class="stat ${concernRows.length>0?'bad':'ok'}"><div class="num">${concernRows.length}</div><div class="lbl">Needs attention</div><div class="small muted" style="margin-top:2px;">concerns to triage</div></div>
+    <div class="stat ${concernRows.filter(r=>!r.addressed).length>0?'bad':'ok'}"><div class="num">${concernRows.filter(r=>!r.addressed).length}</div><div class="lbl">Needs attention</div><div class="small muted" style="margin-top:2px;">${concernRows.filter(r=>r.addressed).length?concernRows.filter(r=>r.addressed).length+' addressed':'concerns to triage'}</div></div>
     <div class="stat ${completionCls}"><div class="num">${cyclePct}%</div><div class="lbl">Cycle completion</div><div class="small muted" style="margin-top:2px;">${escapeHtml(completionCaption)}</div></div>
     <div class="stat ${avgCls}"><div class="num">${overallAvg?overallAvg.toFixed(1):'—'}</div><div class="lbl">Company average</div><div class="small muted" style="margin-top:2px;">all departments</div></div>
     <div class="stat ${participationCls}"><div class="num">${participationPct}%</div><div class="lbl">Feedback participation</div><div class="small muted" style="margin-top:2px;">goal: everyone, twice a year</div></div>
