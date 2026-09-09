@@ -802,13 +802,12 @@ function upwardAverageFor(personId, cycleId){
 // manager's review and their team's upward average (both stay visible in their record). A
 // person without reports is scored by their manager's review alone.
 function scoreFor(person, cycle){
+  // A person's score is their manager's review, for everyone, managers included.
+  // Upward feedback is context that travels alongside (shown in their record and their
+  // upward summary), never blended into the score of record.
   const { rev: mgrRev } = currentManagerReviewFor(person, cycle.id);
   const mgrDone = !!(mgrRev && mgrRev.status==='submitted');
-  const mgrScore = mgrDone ? ratingAvgOfReview(mgrRev) : null;
-  if(!hasReports(person.id)) return mgrScore;
-  const upScore = upwardAverageFor(person.id, cycle.id);
-  const parts = [mgrScore, upScore].filter(v=>v!==null && v!==undefined);
-  return parts.length ? avg(parts) : null;
+  return mgrDone ? ratingAvgOfReview(mgrRev) : null;
 }
 function peerSummaryFor(targetId, cycleId){ return DB.peerSummaries.find(s=>s.id===targetId+'_'+cycleId); }
 function oneOnOneFor(employeeId, cycleId){ return DB.oneOnOnes.find(o=>o.id===employeeId+'_'+cycleId); }
@@ -1388,13 +1387,19 @@ function dashboardConcernRows(cycle){
   // A concern counts as addressed once HR has written a recommendation for the person on the
   // department report, whatever status was chosen: No action, Monitor, or PIP.
   const touched = {}; // personId -> {status, department, recommendation}
-  DEPT_SUMMARY_GROUPS.forEach(g=>{
-    const report = deptReportFor(g);
-    Object.keys(report.people||{}).forEach(pid=>{
-      const entry = report.people[pid]||{};
+  // Scan every report doc (department, manager-scoped, and legacy groupings alike) so a
+  // person's triage state survives org restructures. Department label comes from the person.
+  (DB.deptSummaries||[]).forEach(doc=>{
+    Object.keys(doc.people||{}).forEach(pid=>{
+      const entry = doc.people[pid]||{};
       const st = entry.status;
       const rec = (entry.recommendation||'').trim();
-      if((st && st!=='no') || rec) touched[pid] = {status:st||'no', department:g, recommendation:rec};
+      if((st && st!=='no') || rec){
+        const prev = touched[pid];
+        if(!prev || (st && st!=='no' && prev.status==='no') || (rec && !prev.recommendation)){
+          touched[pid] = {status:st||(prev?prev.status:'no'), department:deptGroupFor(pid), recommendation:rec||(prev?prev.recommendation:'')};
+        }
+      }
     });
   });
   const rows = [];
@@ -2546,7 +2551,7 @@ function deptReportEntryFor(person, cycle, report){
   const score = scoreFor(person, cycle);
   const upwardScore = hasReports(person.id) ? upwardAverageFor(person.id, cycle.id) : null;
   const upwardSummary = hasReports(person.id) ? upwardSummaryFor(person.id, cycle.id) : null;
-  const reportPublished = report.status==='published';
+  const reportPublished = report.status==='published' || (DB.deptSummaries||[]).some(d=>d.status==='published' && d.managerId && (person.managerId===d.managerId || managerChainOf(person.id).includes(d.managerId)));
   let admin = (report.people && report.people[person.id]) || null;
   if(!admin){
     // Fallback: entries authored when this person sat under a differently-keyed report doc
@@ -2584,6 +2589,19 @@ function deptReportEntries(dept, cycle, report){
     .map(p=>deptReportEntryFor(p, cycle, report));
 }
 
+// Short notification letter: the manager reads the full report in the app, never in email.
+// Email = your-summary text + where to find it + the 1:1 notes and BuildBetter ask.
+function deptReportNoticeHtml(cycle, report, recipientName, teamLabel){
+  const summary = (report.summary||'').trim();
+  return `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;font-size:14px;color:#1c2b25;line-height:1.6;max-width:640px;">
+    <p>Hi ${escapeHtml(recipientName.split(' ')[0])},</p>
+    <p>Your ${escapeHtml(cycle.label)} report for ${escapeHtml(teamLabel)} is published. Here is the summary; the full report, including each person's record and our recommendations, is in <a href="https://performance.plei.com" style="color:#0f5138;">Plei Performance</a> under My Team.</p>
+    ${summary ? `<div style="border-left:3px solid #bfe3cf;padding:2px 0 2px 14px;margin:14px 0;white-space:pre-wrap;">${escapeHtml(summary)}</div>` : ''}
+    <p><b>Two asks:</b> hold your 1:1 debrief with each person, and log your notes in the 1:1 notes section right after. Include a short summary of the call and the BuildBetter link, so you can reference it on future calls without going to find it.</p>
+    <p>Questions, grab us anytime.</p>
+    <p>- Plei Performance HR</p>
+  </div>`;
+}
 function deptReportEmailHtml(dept, cycle, report, entries, teamScore, managerScore, headName){
   const SRC_TAG = {hr:'HR', manager:'Manager', self:'Self-review'};
   const SRC_COLOR = {hr:'#16755C', manager:'#94a3a1', self:'#94a3a1'};
@@ -2959,8 +2977,8 @@ function myTeamPersonSectionsHtml(e, cycle, isHR){
             ${skipMgr?`<option value="skip_only" ${curRecipients==='skip_only'?'selected':''}>${escapeHtml(skipMgr.name)} only</option>`:''}
           </select>
         </div>
-        <div style="padding:10px 14px 12px;"><span class="actbtn" data-publish-summary="${p.id}">${summary&&summary.published?'Update & send':'Send summary'}</span></div>`;
-      parts.push(myTeamSectionHtml('up_'+p.id, 'Team feedback · upward', 'done', (summary&&summary.published?'sent · ':'draft · ')+count+' collected', body));
+        <div style="padding:10px 14px 12px;"><span class="actbtn" data-publish-summary="${p.id}">${summary&&summary.published?'Update published summary':'Publish summary'}</span></div>`;
+      parts.push(myTeamSectionHtml('up_'+p.id, 'Team feedback · upward', 'done', (summary&&summary.published?'published · ':'draft · ')+count+' collected', body));
     } else if(summary && summary.published){
       const body = `<div class="pdims"><span>Average <b>${e.upwardScore!==null?e.upwardScore.toFixed(1):'—'}</b></span><span>Responses <b>${summary.responseCount||0}</b></span></div>
         <div class="pf"><b>THEMES</b><p>${escapeHtml(summary.themes)||'No themes recorded.'}</p></div>`;
@@ -3793,7 +3811,9 @@ function bindViewEvents(role, nav, cycle, person){
     const scoredPrev = entries.filter(e=>e.score!=null);
     const teamScorePrev = scoredPrev.length ? avg(scoredPrev.map(e=>e.score)) : null;
     const previewName = head ? head.name : (candidates[0] ? candidates[0].name : 'there');
-    const previewHtml = deptReportEmailHtml(dept, cycle, report, entries, teamScorePrev, managerScorePrev, previewName);
+    const previewTeamLabel = scopedMgrId ? (head?head.name.split(' ')[0]+"'s team":'your team') : (dept+' (full department)');
+    const previewReport = scopedMgrId ? mgrReportFor(scopedMgrId) : report;
+    const previewHtml = deptReportNoticeHtml(cycle, previewReport, previewName, previewTeamLabel);
     const defaultSubject = 'Department Report · ' + dept + ' (' + cycle.label + ')';
     const modalHtml = `
   <div class="modal-bg no-print" id="publishModalBg">
@@ -3835,12 +3855,11 @@ function bindViewEvents(role, nav, cycle, person){
           // The department head gets the full report with your edits. Any other manager gets a
           // version scoped to their own direct reports only, so sub-team leads never see the
           // whole department's records.
+          // Everyone gets the short letter; the head's version carries your edits, any other
+          // selected manager gets the same letter re-addressed (report content lives in the app).
           let bodyForR = finalBody;
-          if(!head || r.id!==head.id){
-            const scoped = entries.filter(e=>e.person && e.person.managerId===r.id);
-            const scScored = scoped.filter(e=>e.score!=null);
-            const scTeam = scScored.length ? avg(scScored.map(e=>e.score)) : null;
-            bodyForR = deptReportEmailHtml(dept, cycle, report, scoped, scTeam, null, r.name);
+          if(head && r.id!==head.id){
+            bodyForR = deptReportNoticeHtml(cycle, scopedMgrId?mgrReportFor(scopedMgrId):report, r.name, previewTeamLabel);
           }
           await sendGmail({
             to: r.email,
@@ -4077,21 +4096,10 @@ function bindViewEvents(role, nav, cycle, person){
       avgRatings, themes, responseCount:list.length, published:true, publishedAt:new Date().toISOString()
     }, {merge:true});
     await fdb.collection('upward_counts').doc(managerId+'_'+cycle.id).set({summaryPublished:true}, {merge:true});
-    try{
-      const recipientPeople = visibleToIds.map(pid=>getPerson(pid)).filter(p=>p && p.email);
-      for(const rp of recipientPeople){
-        await sendGmail({
-          to: rp.email,
-          subject: 'Upward feedback summary ready · ' + cycle.label,
-          bodyHtml: '<p>Hi ' + rp.name + ',</p>' +
-            '<p>HR has published an upward feedback summary for <b>' + manager.name + '</b> (' + cycle.label + ') in Plei Performance.</p>' +
-            '<p>You can view it under the Upward Feedback section in the app.</p>' +
-            '<p>- Plei Performance HR</p>'
-        });
-      }
-    }catch(e){ console.error('sendGmail (upward summary published) failed:', e); }
+    // No email. Publishing makes the summary visible in the recipient's own app view
+    // (My Upward Feedback / their profile); the department-report email is the only notification.
     clearLocalDraft(draftKey('summary', cycle.id, managerId));
-    toast('Summary sent'); render();
+    toast('Summary published, visible in their app'); render();
   }));
   document.querySelectorAll('[data-publish-peer-summary]').forEach(el=>el.addEventListener('click', async ()=>{
     const targetId = el.dataset.publishPeerSummary;
@@ -4108,21 +4116,9 @@ function bindViewEvents(role, nav, cycle, person){
       targetEmail: target.email, managerEmail: targetMgr?targetMgr.email:null,
       avgRatings, themes, responseCount:list.length, published:true, publishedAt:new Date().toISOString()
     }, {merge:true});
-    try{
-      const recipients = [target, targetMgr].filter(p=>p && p.email);
-      for(const rp of recipients){
-        await sendGmail({
-          to: rp.email,
-          subject: 'Company wide feedback summary ready · ' + cycle.label,
-          bodyHtml: '<p>Hi ' + escapeHtml(rp.name) + ',</p>' +
-            '<p>HR has published a company wide feedback summary for <b>' + escapeHtml(target.name) + '</b> (' + escapeHtml(cycle.label) + ') in Plei Performance.</p>' +
-            '<p>You can view it under My Profile in the app.</p>' +
-            '<p>- Plei Performance HR</p>'
-        });
-      }
-    }catch(e){ console.error('sendGmail (company wide summary published) failed:', e); }
+    // No email. The summary simply appears on their profile and their manager's view.
     clearLocalDraft(draftKey('peerSummary', cycle.id, targetId));
-    toast('Summary published to person and manager'); render();
+    toast('Summary published, visible on their profile'); render();
   }));
 
   restoreAutosaveFocus();
