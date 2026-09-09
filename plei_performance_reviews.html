@@ -120,6 +120,8 @@
   .psec .psh.pend{background:var(--bad-bg);border-bottom:none;cursor:default;}
   .psec .psh.pend b, .psec .psh.pend span{color:var(--bad);}
   .psbody{display:none;}
+  .psec .psh.done.alert{background:var(--bad-bg);}
+  .psec .psh.done.alert b, .psec .psh.done.alert span{color:var(--bad);}
   .psec.open .psbody{display:block;}
   .pf{padding:8px 14px;border-bottom:1px solid #f4f7f5;}
   .pf:last-child{border-bottom:none;}
@@ -2564,6 +2566,11 @@ function viewDeptReport(dept, cycle, person, isAdmin){
   </div>
 
   <div class="panel">
+    <h3 class="ph">MANAGER<span class="hint">the department head's own record</span></h3>
+    ${head ? dashboardPersonRowHtml(dashboardEntryFor(head.id, cycle), cycle, isAdmin) : '<div class="empty" style="padding:16px;">No department head detected for this department.</div>'}
+  </div>
+
+  <div class="panel">
     <h3 class="ph">PEOPLE<span class="hint">click a person to expand their full record</span></h3>
     ${entries.length===0 ? '<div class="empty" style="padding:16px;">No one to report on in this department.</div>' : entries.map(e=>dashboardPersonRowHtml(e, cycle, isAdmin)).join('')}
   </div>`;
@@ -2680,8 +2687,9 @@ function myTeamSectionHtml(key, label, state, meta, bodyHtml){
     return `<div class="psec"><div class="psh pend"><b>${escapeHtml(label)}</b><span>${escapeHtml(meta)}</span></div></div>`;
   }
   const open = !!STATE.myTeamOpenSections[key];
+  const alertCls = state==='alert' ? ' alert' : '';
   return `<div class="psec${open?' open':''}">
-    <div class="psh done" data-toggle-myteam-section="${key}"><b>${escapeHtml(label)}</b><span>${escapeHtml(meta)}${open?' · collapse':' · expand ▾'}</span></div>
+    <div class="psh done${alertCls}" data-toggle-myteam-section="${key}"><b>${escapeHtml(label)}</b><span>${escapeHtml(meta)}${open?' · collapse':' · expand ▾'}</span></div>
     <div class="psbody">${bodyHtml}</div>
   </div>`;
 }
@@ -2770,7 +2778,7 @@ function myTeamPersonSectionsHtml(e, cycle, isHR){
         <textarea data-autosave-id="cwfSummary_${p.id}" data-peer-summary-themes="${p.id}" rows="4">${escapeHtml(themesVal)}</textarea>
       </div>
       <div style="padding:0 14px 12px;"><span class="actbtn" data-publish-peer-summary="${p.id}">${peerSummary&&peerSummary.published?'Update published summary':'Publish summary'}</span></div>`;
-    parts.push(myTeamSectionHtml('cwf_'+p.id, 'Company wide feedback', 'done', rawList.length+' pieces', body));
+    parts.push(myTeamSectionHtml('cwf_'+p.id, 'Company wide feedback', (peerSummary && peerSummary.published) || (themesVal && themesVal.trim()) ? 'done' : 'alert', rawList.length+' pieces', body));
   } else if(peerSummary && peerSummary.published){
     const avgV = myTeamRatingAvg(peerSummary);
     const body = `<div class="pf"><b>HR PUBLISHED SUMMARY</b><p>${escapeHtml(peerSummary.themes)||'No summary text.'}</p></div>`;
@@ -2794,7 +2802,7 @@ function myTeamPersonSectionsHtml(e, cycle, isHR){
       <div class="pf"><b>RECOMMENDATION</b>
         <textarea data-autosave-id="dsRec_${p.id}" data-entry-recommendation="${p.id}" data-dept="${escapeHtml(dept)}" rows="3" placeholder="What should happen next for ${escapeHtml(p.name)}?">${escapeHtml(e.recommendation)}</textarea>
       </div>`;
-    parts.push(myTeamSectionHtml('hr_'+p.id, 'HR summary & recommendation', 'done', (e.reportPublished?'✓ published':((e.recommendation && e.recommendation.trim())?'✓ drafted':'not started')), body));
+    parts.push(myTeamSectionHtml('hr_'+p.id, 'HR summary & recommendation', (e.reportPublished || (e.recommendation && e.recommendation.trim())) ? 'done' : 'alert', (e.reportPublished?'✓ published':((e.recommendation && e.recommendation.trim())?'✓ drafted':'not started')), body));
   } else if(e.reportPublished){
     const statusLabel = {no:'No action', monitor:'Monitor', yes:'PIP'}[e.status] || 'No action';
     const body = `<div class="pf"><b>RECOMMENDATION</b><p>${escapeHtml(e.recommendation)||'No concerns flagged this cycle.'}</p></div><div class="pkv"><div><b>STATUS</b>${escapeHtml(statusLabel)}</div></div>`;
