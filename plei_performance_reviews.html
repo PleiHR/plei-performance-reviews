@@ -1378,7 +1378,7 @@ function dashboardConcernRows(cycle){
     const report = deptReportFor(g);
     Object.keys(report.people||{}).forEach(pid=>{
       const st = (report.people[pid]||{}).status;
-      if(st && st!=='no') flagged[pid] = {status:st, department:g};
+      if(st && st!=='no') flagged[pid] = {status:st, department:g, recommendation:(report.people[pid]||{}).recommendation||''};
     });
   });
   const rows = [];
@@ -1387,7 +1387,7 @@ function dashboardConcernRows(cycle){
     const score = mgrRev ? ratingAvgOfReview(mgrRev) : null;
     const flag = flagged[p.id];
     if(flag){
-      rows.push({person:p, label:(flag.status==='yes'?'PIP':'Monitor') + ' — set on the ' + flag.department + ' department report', score, action:'ping', department:flag.department});
+      rows.push({person:p, label:(flag.status==='yes'?'PIP':'Monitor') + ' — set on the ' + flag.department + ' department report', score, action:'ping', department:flag.department, recommendation:flag.recommendation});
     } else if(score!==null && score<3.5){
       rows.push({person:p, label:'Low score this cycle, not yet triaged', score, action:'reopen', department:deptGroupFor(p.id)});
     } else if(p.role!=='hr' && !p.managerId && p.title!=='CEO'){
@@ -1436,7 +1436,7 @@ function dashboardConcernRowHtml(r){
   return `<div class="prow" style="cursor:default;">
     <div class="who"><b>${escapeHtml(r.person.name)}</b><span>${escapeHtml(r.label)}</span></div>
     ${r.score!==null?scoreBadge(r.score):''}
-    <button class="actbtn" data-concern-action="${r.action}" data-person="${r.person.id}" data-dept="${escapeHtml(r.department||'')}">Triage</button>
+    ${r.recommendation && r.recommendation.trim() ? '<span class="stpill ok" style="margin-right:8px;">✓ addressed</span>' : ''}<button class="actbtn" data-concern-action="${r.action}" data-person="${r.person.id}" data-dept="${escapeHtml(r.department||'')}">Triage</button>
   </div>`;
 }
 
@@ -2794,7 +2794,7 @@ function myTeamPersonSectionsHtml(e, cycle, isHR){
       <div class="pf"><b>RECOMMENDATION</b>
         <textarea data-autosave-id="dsRec_${p.id}" data-entry-recommendation="${p.id}" data-dept="${escapeHtml(dept)}" rows="3" placeholder="What should happen next for ${escapeHtml(p.name)}?">${escapeHtml(e.recommendation)}</textarea>
       </div>`;
-    parts.push(myTeamSectionHtml('hr_'+p.id, 'HR summary & recommendation', 'done', (e.reportPublished?'✓ published':'draft')+'', body));
+    parts.push(myTeamSectionHtml('hr_'+p.id, 'HR summary & recommendation', (e.reportPublished || (e.recommendation && e.recommendation.trim()))?'done':'pending', (e.reportPublished?'✓ published':((e.recommendation && e.recommendation.trim())?'✓ drafted':'not started')), body));
   } else if(e.reportPublished){
     const statusLabel = {no:'No action', monitor:'Monitor', yes:'PIP'}[e.status] || 'No action';
     const body = `<div class="pf"><b>RECOMMENDATION</b><p>${escapeHtml(e.recommendation)||'No concerns flagged this cycle.'}</p></div><div class="pkv"><div><b>STATUS</b>${escapeHtml(statusLabel)}</div></div>`;
