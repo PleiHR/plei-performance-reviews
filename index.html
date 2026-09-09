@@ -2846,8 +2846,12 @@ function myTeamPersonSectionsHtml(e, cycle, isHR){
     const noteRec = oneOnOneNotesFor(p.id, cycle.id);
     const notesVal = noteRec && noteRec.notes ? noteRec.notes : '';
     const held = o1n && o1n.status==='completed';
-    const nbody = `<div class="pf"><b>PRIVATE · YOU AND HR ONLY</b><p style="margin-bottom:6px;">What was discussed, how the review landed, anything HR should know. Anything ${escapeHtml(p.name.split(' ')[0])} agreed to do goes in Follow-ups instead, which they can see.</p>
+    const nbody = `<div class="pf"><b>PRIVATE · YOU AND HR ONLY</b><p style="margin-bottom:6px;">What was discussed, how the review landed, anything HR should know. Nothing to note? Write NA and save. Anything ${escapeHtml(p.name.split(' ')[0])} agreed to do goes in Follow-ups instead, which they can see.</p>
       <textarea data-autosave-id="o1notes_${p.id}_${cycle.id}" data-o1-notes="${p.id}" data-cycle="${cycle.id}" rows="4" placeholder="Notes from the 1:1 with ${escapeHtml(p.name.split(' ')[0])}...">${escapeHtml(notesVal)}</textarea>
+      <div style="display:flex;gap:10px;align-items:center;margin-top:8px;">
+        <span class="actbtn" data-o1-notes-save="${p.id}" data-cycle="${cycle.id}">Save</span>
+        <span class="muted small" data-save-status-for="o1notes_${p.id}_${cycle.id}"></span>
+      </div>
     </div>`;
     const nst = notesVal.trim() ? 'done' : (held ? 'alert' : 'pending');
     const ncap = notesVal.trim() ? ('logged'+(noteRec&&noteRec.notesAt?' '+fmtDate(noteRec.notesAt.slice(0,10)):'')) : (held ? 'not logged yet' : 'after the 1:1');
@@ -3639,19 +3643,37 @@ function bindViewEvents(role, nav, cycle, person){
       }, {merge:true});
     });
   });
+  const saveO1Notes = async (pid, cyc, value)=>{
+    const me = sessionPerson();
+    const person = getPerson(pid);
+    const mgr = person && person.managerId ? getPerson(person.managerId) : null;
+    await fdb.collection('oneononeNotes').doc(pid+'_'+cyc).set({
+      employeeId: pid, cycleId: cyc, notes: value,
+      managerEmail: mgr ? mgr.email : (me ? me.email : ''),
+      notesAt: new Date().toISOString(), notesBy: me ? me.email : ''
+    }, {merge:true});
+  };
   document.querySelectorAll('textarea[data-o1-notes]').forEach(el=>{
-    wireAutosaveTextarea(el, async (value)=>{
-      const me = sessionPerson();
-      const pid = el.dataset.o1Notes, cyc = el.dataset.cycle;
-      const person = getPerson(pid);
-      const mgr = person && person.managerId ? getPerson(person.managerId) : null;
-      await fdb.collection('oneononeNotes').doc(pid+'_'+cyc).set({
-        employeeId: pid, cycleId: cyc, notes: value,
-        managerEmail: mgr ? mgr.email : (me ? me.email : ''),
-        notesAt: new Date().toISOString(), notesBy: me ? me.email : ''
-      }, {merge:true});
-    });
+    wireAutosaveTextarea(el, async (value)=>{ await saveO1Notes(el.dataset.o1Notes, el.dataset.cycle, value); });
   });
+  document.querySelectorAll('[data-o1-notes-save]').forEach(btn=>btn.addEventListener('click', async ()=>{
+    const pid = btn.dataset.o1NotesSave, cyc = btn.dataset.cycle;
+    const el = document.querySelector(`textarea[data-o1-notes="${pid}"]`);
+    if(!el) return;
+    const statusEl = document.querySelector(`[data-save-status-for="o1notes_${pid}_${cyc}"]`);
+    if(statusEl) statusEl.textContent = 'Saving...';
+    btn.textContent = '...';
+    try{
+      await saveO1Notes(pid, cyc, el.value);
+      btn.textContent = 'Save';
+      if(statusEl) statusEl.textContent = 'Saved ✓';
+      render();
+    }catch(e){
+      btn.textContent = 'Save';
+      if(statusEl) statusEl.textContent = 'Could not save';
+      alert('Could not save 1:1 notes: ' + e.message + (String(e.message).toLowerCase().includes('permission') ? '\n\nThe Firestore rule for oneononeNotes has not been added yet. Ask Priscila to duplicate the followUps rule for the oneononeNotes collection in the Firebase console.' : ''));
+    }
+  }));
   document.querySelectorAll('[data-entry-status]').forEach(el=>el.addEventListener('change', async ()=>{
     const me = sessionPerson();
     const personId = el.dataset.entryStatus;
@@ -3707,7 +3729,7 @@ function bindViewEvents(role, nav, cycle, person){
       <div style="margin-top:10px;">
         <div style="font-size:9.5px;letter-spacing:.06em;color:#8a978f;font-weight:700;margin-bottom:4px;">EMAIL · click anywhere in it to edit</div>
         <div id="pubBody" contenteditable="true" style="border:1px solid #d8e0dc;border-radius:10px;padding:12px 14px;max-height:340px;overflow:auto;background:#fff;font-size:13px;outline:none;">${previewHtml}</div>
-        <p class="muted small" style="margin:6px 0 0;">This exact email, with your edits, goes to everyone selected above. Edits here do not change the report inside the app.</p>
+        <p class="muted small" style="margin:6px 0 0;">The department head receives this full report with your edits. Any other manager selected receives an automatic version containing only their own direct reports. Edits here do not change the report inside the app.</p>
       </div>
       <div class="row" style="justify-content:flex-end;gap:8px;margin-top:16px;">
         <button class="btn ghost sm" id="cancelPublishModal">Cancel</button>
@@ -3730,10 +3752,20 @@ function bindViewEvents(role, nav, cycle, person){
         const finalSubject = (document.getElementById('pubSubject')?.value || defaultSubject).trim() || defaultSubject;
         const finalBody = document.getElementById('pubBody')?.innerHTML || previewHtml;
         for(const r of recipients){
+          // The department head gets the full report with your edits. Any other manager gets a
+          // version scoped to their own direct reports only, so sub-team leads never see the
+          // whole department's records.
+          let bodyForR = finalBody;
+          if(!head || r.id!==head.id){
+            const scoped = entries.filter(e=>e.person && e.person.managerId===r.id);
+            const scScored = scoped.filter(e=>e.score!=null);
+            const scTeam = scScored.length ? avg(scScored.map(e=>e.score)) : null;
+            bodyForR = deptReportEmailHtml(dept, cycle, report, scoped, scTeam, null, r.name);
+          }
           await sendGmail({
             to: r.email,
             subject: finalSubject,
-            bodyHtml: finalBody
+            bodyHtml: bodyForR
           });
         }
         await fdb.collection('deptSummaries').doc(deptReportIdFor(dept)).set({
