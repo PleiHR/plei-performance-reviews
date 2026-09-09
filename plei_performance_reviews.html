@@ -2130,6 +2130,19 @@ function viewTodos(cycle, person){
       pillHtml: pendingOneOnOnes===0 ? '<span class="stpill ok">Completed</span>' : '<span class="stpill warn">This week</span>',
       actionLabel: 'Book', actionAttr: 'data-nav="myteam"'
     }));
+
+    // Log 1:1 notes: derived from oneononeNotes for reports whose 1:1 already happened.
+    // Notes are required after every held debrief; writing "NA" counts when there is nothing to log.
+    const heldOnes = reports.filter(r=>{ const o = oneOnOneFor(r.id, cycle.id); return o && o.status==='completed'; });
+    if(heldOnes.length){
+      const notesPending = heldOnes.filter(r=>{ const n = oneOnOneNotesFor(r.id, cycle.id); return !(n && n.notes && n.notes.trim()); }).length;
+      rows1.push(todoRowHtml({
+        done: notesPending===0,
+        label: `Log 1:1 notes · ${notesPending} remaining · nothing to note? write NA`,
+        pillHtml: notesPending===0 ? '<span class="stpill ok">Completed</span>' : '<span class="stpill warn">After each 1:1</span>',
+        actionLabel: 'Log', actionAttr: 'data-nav="myteam"'
+      }));
+    }
   }
   // Note: an admin "quality actions" row (reopen a review flagged below quality standard) is
   // intentionally omitted here. The current schema has no field that flags a submitted review
@@ -3672,13 +3685,30 @@ function bindViewEvents(role, nav, cycle, person){
     const candidates = Array.from(candidateIds).map(id=>getPerson(id)).filter(Boolean).filter(p=>p.email);
     if(!candidates.length){ alert('No manager with an email on file for ' + dept + ', set one on the org chart before publishing.'); return; }
     const rowsHtml = candidates.map(p=>`<label style="display:flex;align-items:center;gap:8px;padding:6px 0;"><input type="checkbox" class="pubRecipient" value="${escapeHtml(p.id)}" ${head && p.id===head.id?'checked':''}><span>${escapeHtml(p.name)} <span class="muted small">(${escapeHtml(p.email)})</span></span></label>`).join('');
+    // Build the exact email up front so it can be reviewed and edited before anything sends.
+    const headMgrRevPrev = head ? findReview('manager', cycle.id, x=>x.employeeId===head.id && x.status==='submitted') : null;
+    const managerScorePrev = headMgrRevPrev ? ratingAvgOfReview(headMgrRevPrev) : null;
+    const scoredPrev = entries.filter(e=>e.score!=null);
+    const teamScorePrev = scoredPrev.length ? avg(scoredPrev.map(e=>e.score)) : null;
+    const previewName = head ? head.name : (candidates[0] ? candidates[0].name : 'there');
+    const previewHtml = deptReportEmailHtml(dept, cycle, report, entries, teamScorePrev, managerScorePrev, previewName);
+    const defaultSubject = 'Department Report · ' + dept + ' (' + cycle.label + ')';
     const modalHtml = `
   <div class="modal-bg no-print" id="publishModalBg">
-    <div class="modal">
+    <div class="modal" style="max-width:760px;width:92vw;">
       <span class="close-x" id="closePublishModal">✕</span>
       <h3>Publish ${escapeHtml(dept)} department report</h3>
-      <p class="muted small" style="margin:4px 0 12px;">Choose who should receive this report by email and see it in My Team.</p>
+      <p class="muted small" style="margin:4px 0 10px;">Review and edit exactly what will be sent. Nothing goes out until you hit Send.</p>
       <div>${rowsHtml}</div>
+      <div style="margin-top:10px;">
+        <div style="font-size:9.5px;letter-spacing:.06em;color:#8a978f;font-weight:700;margin-bottom:4px;">SUBJECT</div>
+        <input type="text" id="pubSubject" value="${escapeHtml(defaultSubject)}" style="width:100%;box-sizing:border-box;font-size:13px;" />
+      </div>
+      <div style="margin-top:10px;">
+        <div style="font-size:9.5px;letter-spacing:.06em;color:#8a978f;font-weight:700;margin-bottom:4px;">EMAIL · click anywhere in it to edit</div>
+        <div id="pubBody" contenteditable="true" style="border:1px solid #d8e0dc;border-radius:10px;padding:12px 14px;max-height:340px;overflow:auto;background:#fff;font-size:13px;outline:none;">${previewHtml}</div>
+        <p class="muted small" style="margin:6px 0 0;">This exact email, with your edits, goes to everyone selected above. Edits here do not change the report inside the app.</p>
+      </div>
       <div class="row" style="justify-content:flex-end;gap:8px;margin-top:16px;">
         <button class="btn ghost sm" id="cancelPublishModal">Cancel</button>
         <button class="btn" id="confirmPublishBtn">Send</button>
@@ -3696,16 +3726,14 @@ function bindViewEvents(role, nav, cycle, person){
       const confirmBtn = document.getElementById('confirmPublishBtn');
       confirmBtn.disabled = true; confirmBtn.textContent = 'Sending...';
       try{
-        const headMgrRev = head ? findReview('manager', cycle.id, x=>x.employeeId===head.id && x.status==='submitted') : null;
-        const managerScore = headMgrRev ? ratingAvgOfReview(headMgrRev) : null;
-        const scored = entries.filter(e=>e.score!=null);
-        const teamScore = scored.length ? avg(scored.map(e=>e.score)) : null;
         const me = sessionPerson();
+        const finalSubject = (document.getElementById('pubSubject')?.value || defaultSubject).trim() || defaultSubject;
+        const finalBody = document.getElementById('pubBody')?.innerHTML || previewHtml;
         for(const r of recipients){
           await sendGmail({
             to: r.email,
-            subject: 'Department Report · ' + dept + ' (' + cycle.label + ')',
-            bodyHtml: deptReportEmailHtml(dept, cycle, report, entries, teamScore, managerScore, r.name)
+            subject: finalSubject,
+            bodyHtml: finalBody
           });
         }
         await fdb.collection('deptSummaries').doc(deptReportIdFor(dept)).set({
