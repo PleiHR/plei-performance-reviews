@@ -2794,7 +2794,7 @@ function myTeamPersonSectionsHtml(e, cycle, isHR){
       <div class="pf"><b>RECOMMENDATION</b>
         <textarea data-autosave-id="dsRec_${p.id}" data-entry-recommendation="${p.id}" data-dept="${escapeHtml(dept)}" rows="3" placeholder="What should happen next for ${escapeHtml(p.name)}?">${escapeHtml(e.recommendation)}</textarea>
       </div>`;
-    parts.push(myTeamSectionHtml('hr_'+p.id, 'HR summary & recommendation', (e.reportPublished || (e.recommendation && e.recommendation.trim()))?'done':'pending', (e.reportPublished?'✓ published':((e.recommendation && e.recommendation.trim())?'✓ drafted':'not started')), body));
+    parts.push(myTeamSectionHtml('hr_'+p.id, 'HR summary & recommendation', 'done', (e.reportPublished?'✓ published':((e.recommendation && e.recommendation.trim())?'✓ drafted':'not started')), body));
   } else if(e.reportPublished){
     const statusLabel = {no:'No action', monitor:'Monitor', yes:'PIP'}[e.status] || 'No action';
     const body = `<div class="pf"><b>RECOMMENDATION</b><p>${escapeHtml(e.recommendation)||'No concerns flagged this cycle.'}</p></div><div class="pkv"><div><b>STATUS</b>${escapeHtml(statusLabel)}</div></div>`;
