@@ -492,7 +492,7 @@ async function seedFirestoreFromOrgData(){
 let DB = {departments:[], people:[], directory:[], cycles:[], settings:{companyDomain:'plei.com'},
   reviews:{self:[], manager:[], peer:[], upward:[]}, suggestions:[], suggestionAuthorship:[],
   peerCounts:[], peerAuthorship:[], peerSummaries:[],
-  upwardCounts:[], upwardSummaries:[], upwardAuthorship:[], oneOnOnes:[], calendarSync:[], personFiles:[], deptSummaries:[],
+  upwardCounts:[], upwardSummaries:[], upwardAuthorship:[], oneOnOnes:[], oneOnOneNotes:[], calendarSync:[], personFiles:[], deptSummaries:[],
   followUps:[], coffeeChats:[], managerReports:[]};
 let DB_LOADED = false;
 let CURRENT_USER = null; // {uid, email}
@@ -521,6 +521,9 @@ function startReviewListeners(email, isHR){
     reviewListenerUnsubs.push(fdb.collection('upward_summaries').onSnapshot(snap=>{ DB.upwardSummaries = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('peer_summaries').onSnapshot(snap=>{ DB.peerSummaries = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('oneonones').onSnapshot(snap=>{ DB.oneOnOnes = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
+    // 1:1 notes: private record of the debrief, manager + HR only. Separate collection so the
+    // employee's client never loads it (their oneonones listener stays notes-free).
+    reviewListenerUnsubs.push(fdb.collection('oneononeNotes').onSnapshot(snap=>{ DB.oneOnOneNotes = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('calendarSync').onSnapshot(snap=>{ DB.calendarSync = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('suggestions').onSnapshot(snap=>{ DB.suggestions = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('suggestion_authorship').onSnapshot(snap=>{ DB.suggestionAuthorship = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
@@ -584,6 +587,8 @@ function startReviewListeners(email, isHR){
     // Follow-ups: only the manager who owns the commitment can read it (not the employee it's
     // about, this mirrors PIP/monitor status already being manager+HR-only in deptSummaries).
     reviewListenerUnsubs.push(fdb.collection('followUps').where('managerEmail','==',email).onSnapshot(snap=>{ DB.followUps = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
+    // 1:1 notes: only the manager who wrote/owns them (never the employee they're about).
+    reviewListenerUnsubs.push(fdb.collection('oneononeNotes').where('managerEmail','==',email).onSnapshot(snap=>{ DB.oneOnOneNotes = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     reviewListenerUnsubs.push(fdb.collection('deptSummaries').where('recipientIds','array-contains',myLocalId(email)).onSnapshot(snap=>{ DB.deptSummaries = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); if(DB_LOADED) render(); }, e=>console.error(e)));
     // Coffee chats: a person can read their own pairing (either side of it).
     let coffeeAsA = [], coffeeAsB = [];
@@ -804,6 +809,7 @@ function scoreFor(person, cycle){
 }
 function peerSummaryFor(targetId, cycleId){ return DB.peerSummaries.find(s=>s.id===targetId+'_'+cycleId); }
 function oneOnOneFor(employeeId, cycleId){ return DB.oneOnOnes.find(o=>o.id===employeeId+'_'+cycleId); }
+function oneOnOneNotesFor(employeeId, cycleId){ return DB.oneOnOneNotes.find(o=>o.id===employeeId+'_'+cycleId); }
 function calendarSyncFor(personId, cycleId){ return DB.calendarSync.find(c=>c.id===personId+'_'+cycleId); }
 
 function fmtDate(d){ if(!d) return '—'; const dt=new Date(d+'T00:00:00'); return dt.toLocaleDateString('en-US',{day:'2-digit',month:'short',year:'numeric'}); }
@@ -2794,6 +2800,7 @@ function myTeamTimelineHtml(e, cycle){
   if(!o1 || o1.status==='pending') items.push({label:'1:1', val:'not yet', miss:true});
   else if(o1.status==='scheduled') items.push({label:'1:1', val:'scheduled '+fmtDateTime(o1.scheduledAt), miss:true});
   else items.push({label:'1:1 held', val:fmtDateTime(o1.completedAt), miss:false});
+  if(o1 && o1.status==='completed'){ const nr = oneOnOneNotesFor(p.id, cycle.id); items.push(nr && nr.notes && nr.notes.trim() ? {label:'1:1 notes', val:'logged', miss:false} : {label:'1:1 notes', val:'not yet', miss:true}); }
   return `<div class="ptl">${items.map(it=>`<div class="${it.miss?'miss':''}"><span>${escapeHtml(it.label)}</span><b>${escapeHtml(it.val)}</b></div>`).join('')}</div>`;
 }
 
@@ -2816,6 +2823,22 @@ function myTeamPersonSectionsHtml(e, cycle, isHR){
     parts.push(myTeamSectionHtml('mgr_'+p.id, 'Manager review · '+escapeHtml(e.reviewerOfRecord), 'done', 'submitted '+fmtDate(mgrRev.submittedAt.slice(0,10))+'', body));
   } else {
     parts.push(myTeamSectionHtml('mgr_'+p.id, 'Manager review', 'pending', 'not submitted yet', ''));
+  }
+
+  // 1:1 notes: the manager's private record of the debrief. Visible to the manager and HR
+  // only; this component never renders on the person's own profile. Commitments the person
+  // agreed to belong in Follow-ups, which they can see.
+  {
+    const o1n = oneOnOneFor(p.id, cycle.id);
+    const noteRec = oneOnOneNotesFor(p.id, cycle.id);
+    const notesVal = noteRec && noteRec.notes ? noteRec.notes : '';
+    const held = o1n && o1n.status==='completed';
+    const nbody = `<div class="pf"><b>PRIVATE · YOU AND HR ONLY</b><p style="margin-bottom:6px;">What was discussed, how the review landed, anything HR should know. Anything ${escapeHtml(p.name.split(' ')[0])} agreed to do goes in Follow-ups instead, which they can see.</p>
+      <textarea data-autosave-id="o1notes_${p.id}_${cycle.id}" data-o1-notes="${p.id}" data-cycle="${cycle.id}" rows="4" placeholder="Notes from the 1:1 with ${escapeHtml(p.name.split(' ')[0])}...">${escapeHtml(notesVal)}</textarea>
+    </div>`;
+    const nst = notesVal.trim() ? 'done' : (held ? 'alert' : 'pending');
+    const ncap = notesVal.trim() ? ('logged'+(noteRec&&noteRec.notesAt?' '+fmtDate(noteRec.notesAt.slice(0,10)):'')) : (held ? 'not logged yet' : 'after the 1:1');
+    parts.push(myTeamSectionHtml('o1n_'+p.id, '1:1 notes', nst, ncap, nbody));
   }
 
   if(hasReports(p.id)){
@@ -3600,6 +3623,19 @@ function bindViewEvents(role, nav, cycle, person){
       await fdb.collection('deptSummaries').doc(deptReportIdFor(el.dataset.dept)).set({
         department: el.dataset.dept, people: {[personId]: {recommendation: value}},
         updatedAt: new Date().toISOString(), updatedByName: me?me.name:''
+      }, {merge:true});
+    });
+  });
+  document.querySelectorAll('textarea[data-o1-notes]').forEach(el=>{
+    wireAutosaveTextarea(el, async (value)=>{
+      const me = sessionPerson();
+      const pid = el.dataset.o1Notes, cyc = el.dataset.cycle;
+      const person = getPerson(pid);
+      const mgr = person && person.managerId ? getPerson(person.managerId) : null;
+      await fdb.collection('oneononeNotes').doc(pid+'_'+cyc).set({
+        employeeId: pid, cycleId: cyc, notes: value,
+        managerEmail: mgr ? mgr.email : (me ? me.email : ''),
+        notesAt: new Date().toISOString(), notesBy: me ? me.email : ''
       }, {merge:true});
     });
   });
