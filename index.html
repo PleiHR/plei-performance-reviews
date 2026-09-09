@@ -1393,7 +1393,8 @@ function dashboardConcernRows(cycle){
     const mgrRev = findReview('manager', cycle.id, x=>x.employeeId===p.id && x.status==='submitted');
     const score = mgrRev ? ratingAvgOfReview(mgrRev) : null;
     const flag = touched[p.id];
-    if(flag){
+    const wasConcern = (flag && flag.status!=='no') || (score!==null && score<3.5);
+    if(flag && wasConcern){
       rows.push({person:p, label:'', sev:flag.status==='yes'?'pip':(flag.status==='monitor'?'mon':null), score, action:flag.status==='no'?'reopen':'ping', department:flag.department, addressed:!!flag.recommendation});
     } else if(score!==null && score<3.5){
       rows.push({person:p, label:'Not yet triaged', sev:null, score, action:'reopen', department:deptGroupFor(p.id), addressed:false});
