@@ -3355,12 +3355,11 @@ function viewMyReviews(cycle, person){
       <button class="btn ghost sm" id="signOutBtnProfile">Sign out</button>
     </div>
   </div>
-  <div class="grid" style="grid-template-columns:repeat(auto-fit, minmax(150px, 1fr));">
-    <div class="stat ${latestScored?(latestScored.score>=4.0?'ok':(latestScored.score<3.0?'bad':'warn')):''}"><div class="num">${latestScored?latestScored.score.toFixed(1):'—'}</div><div class="lbl">My score${latestScored?' · '+escapeHtml(latestScored.cycle.label):''}</div></div>
-    <div class="stat ${lifetimeAvg===null?'':(lifetimeAvg>=4.0?'ok':(lifetimeAvg<3.0?'bad':'warn'))}"><div class="num">${lifetimeAvg===null?'—':lifetimeAvg.toFixed(1)}</div><div class="lbl">Lifetime average${lifetimeScores.length?' · '+lifetimeScores.length+' cycle'+(lifetimeScores.length===1?'':'s'):''}</div></div>
+  <div class="grid grid-4">
+    <div class="stat ${lifetimeAvg===null?'':(lifetimeAvg>=4.0?'ok':(lifetimeAvg<3.0?'bad':'warn'))}"><div class="num">${lifetimeAvg===null?'—':lifetimeAvg.toFixed(1)}</div><div class="lbl">My score · lifetime average${lifetimeScores.length?' · '+lifetimeScores.length+' cycle'+(lifetimeScores.length===1?'':'s'):''}</div></div>
     <div class="stat ${trend===null?'':(trend>=0?'ok':'bad')}"><div class="num">${trend===null?'—':(trend>=0?'▲ +':'▼ −')+Math.abs(trend).toFixed(1)}</div><div class="lbl">Trend vs last cycle</div></div>
     <div class="stat"><div class="num">${coffeeThisYear}</div><div class="lbl">Coffee chats this year</div></div>
-    <div class="stat ${onTimePct===null?'':(onTimePct>=80?'ok':(onTimePct>=50?'warn':'bad'))}"><div class="num">${onTimePct===null?'—':onTimePct+'%'}</div><div class="lbl">On-time percentage</div></div>
+    <div class="stat ${onTimePct===null||onTimePct===0?'':(onTimePct>=80?'ok':(onTimePct>=50?'warn':'bad'))}"><div class="num">${onTimePct===null?'—':onTimePct+'%'}</div><div class="lbl">On-time percentage</div></div>
   </div>
   <div class="card">
     <h3 class="section-h">My reviews</h3>
