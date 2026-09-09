@@ -2739,7 +2739,10 @@ function myTeamPersonSectionsHtml(e, cycle, isHR){
       const curRecipients = summary ? (summary.recipients || 'manager') : 'manager';
       const draft = loadLocalDraft(draftKey('summary', cycle.id, p.id));
       const themesVal = draft && draft.themes!==undefined ? draft.themes : (summary?(summary.themes||''):'');
+      const rawUpwardList = DB.reviews.upward.filter(r=>r.cycleId===cycle.id && r.managerId===p.id);
+      const rawUpwardHtml = rawUpwardList.length ? rawUpwardList.map(r=>`<div class="pf"><div class="small muted" style="margin-bottom:4px;">Support ${r.ratings.support} · Communication ${r.ratings.communication} · Overall ${r.ratings.overall}</div><p style="margin:0 0 6px;"><b>Support received:</b> ${escapeHtml(r.answers.strengths)||'—'}</p><p style="margin:0 0 6px;"><b>Opportunities for improvement:</b> ${escapeHtml(r.answers.improvements)||'—'}</p>${r.answers.other?'<p style="margin:0;"><b>Other:</b> '+escapeHtml(r.answers.other)+'</p>':''}</div>`).join('') : '<div class="pf"><p>No raw feedback submitted yet.</p></div>';
       const body = `<div class="pdims"><span>Average <b>${e.upwardScore!==null?e.upwardScore.toFixed(1):'—'}</b></span><span>Responses <b>${count}</b></span></div>
+        <div class="pf"><b>RAW PIECES · VISIBLE TO HR ONLY (${rawUpwardList.length})</b></div>${rawUpwardHtml}
         <div class="pf"><b>SUMMARY TO SEND</b><p style="margin-bottom:6px;">Analyze the raw upward feedback and write your own summary — this is what gets sent, never the raw quotes.</p>
           <textarea data-autosave-id="upSummary_${p.id}" data-summary-themes="${p.id}" rows="4">${escapeHtml(themesVal)}</textarea>
         </div>
