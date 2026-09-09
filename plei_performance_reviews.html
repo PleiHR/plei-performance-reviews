@@ -2645,7 +2645,8 @@ function viewDeptReport(dept, cycle, person, isAdmin){
   const totalForCompletion = entries.length + (head?1:0);
   const doneForCompletion = entries.filter(e=>e.mgrDone).length + (headMgrRev?1:0);
   const completionPct = totalForCompletion ? Math.round(doneForCompletion/totalForCompletion*100) : 0;
-  const concernsCount = entries.filter(e=>e.notable).length;
+  // A written recommendation alone is not a concern; only a flagged status or a low score is.
+  const concernsCount = entries.filter(e=>e.status!=='no' || (e.score!==null && e.score<3.5)).length;
   const published = report.status==='published';
 
   if(!isAdmin && !published){
