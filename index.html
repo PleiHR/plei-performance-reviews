@@ -1480,17 +1480,25 @@ function dashboardDeptRowHtml(g, cycle){
   const expanded = !!STATE.deptRowOpen[g];
   const pubCount = (report.status==='published'?1:0) + subMgrs.filter(m=>mgrReportFor(m.id).status==='published').length;
   const totalReports = 1 + subMgrs.length;
+  const scoreCols = (label, n, avgVal, ownScore) => `
+      <div style="text-align:center;flex-shrink:0;"><div style="font-size:9px;color:#8a978f;letter-spacing:.05em;font-weight:700;">${label}${n?' · '+n:''}</div>${scoreBadge(avgVal)}</div>
+      <div style="text-align:center;flex-shrink:0;"><div style="font-size:9px;color:#8a978f;letter-spacing:.05em;font-weight:700;">SCORE</div>${scoreBadge(ownScore)}</div>`;
   const subRows = !expanded ? '' : [
     `<div class="prow" style="padding-left:34px;background:#fbfdfc;">
       <div class="who"><b>${head?escapeHtml(head.name):'—'}</b><span>full department · ${entries.length} people</span></div>
+      ${scoreCols('TEAM AVG', deptPool.length, deptAvg, headScore)}
       <span class="stpill ${report.status==='published'?'ok':'neutral'}">${report.status==='published'?'✓ Published':'Draft'}</span>
       <button class="btn ghost sm" data-open-mgr-report="" data-dept="${escapeHtml(g)}">Report →</button>
     </div>`,
     ...subMgrs.map(m=>{
       const mr = mgrReportFor(m.id);
-      const teamCount = entries.filter(e=>e.person && e.person.managerId===m.id).length;
+      const teamEntries = entries.filter(e=>e.person && e.person.managerId===m.id);
+      const tScored = teamEntries.filter(e=>e.score!=null);
+      const tAvg = tScored.length ? avg(tScored.map(e=>e.score)) : null;
+      const mScore = scoreFor(m, cycle);
       return `<div class="prow" style="padding-left:34px;background:#fbfdfc;">
-        <div class="who"><b>${escapeHtml(m.name)}</b><span>their team · ${teamCount} people</span></div>
+        <div class="who"><b>${escapeHtml(m.name)}</b><span>their team · ${teamEntries.length} people</span></div>
+        ${scoreCols('TEAM AVG', tScored.length, tAvg, mScore)}
         <span class="stpill ${mr.status==='published'?'ok':'neutral'}">${mr.status==='published'?'✓ Published':'Draft'}</span>
         <button class="btn ghost sm" data-open-mgr-report="${escapeHtml(m.id)}" data-dept="${escapeHtml(g)}">Report →</button>
       </div>`;
