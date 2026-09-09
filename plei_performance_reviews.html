@@ -1402,7 +1402,9 @@ function dashboardConcernRows(cycle){
       rows.push({person:p, label:'No manager assigned', sev:null, score:null, action:'reassign', department:null, addressed:false});
     }
   });
-  rows.sort((a,b)=>(a.addressed?1:0)-(b.addressed?1:0) || a.person.name.localeCompare(b.person.name));
+  // Unaddressed first; within each group PIP, then Monitor, then by lowest score; names break ties.
+  const sevRank = r => r.sev==='pip'?0:(r.sev==='mon'?1:2);
+  rows.sort((a,b)=>(a.addressed?1:0)-(b.addressed?1:0) || sevRank(a)-sevRank(b) || ((a.score===null?99:a.score)-(b.score===null?99:b.score)) || a.person.name.localeCompare(b.person.name));
   return rows;
 }
 function dashboardPendingRows(cycle){
