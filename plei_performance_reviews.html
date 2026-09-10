@@ -2663,9 +2663,12 @@ function buildDeptReportPrintable(dept, cycle, report, entries, teamScore, manag
   const cardsHtml = entries.map(e=>{
     const p = e.person;
     const hasContent = e.inTheirWords || e.managersAssessment || e.oneOnOneOutcome || e.recommendation;
-    if(!hasContent) return `<div class="block"><b>${escapeHtml(p.name)}</b><p>${e.score!==null?e.score.toFixed(1):'—'} · ${escapeHtml(statusLabel[e.status]||'No action')}</p></div>`;
-    return `<div class="block" style="border-bottom:1px solid #e1e5e2;padding-bottom:12px;">
-      <b>${escapeHtml(p.name)}${p.title?' · '+escapeHtml(p.title):''} · reviewed by ${escapeHtml(e.reviewerOfRecord)} · ${e.score!==null?e.score.toFixed(1):'—'} · ${escapeHtml(statusLabel[e.status]||'No action')}</b>
+    if(!hasContent) return `<div class="pcard slim"><div class="phead"><span class="pname">${escapeHtml(p.name)}</span><span class="pmeta">${e.score!==null?e.score.toFixed(1):'—'} · ${escapeHtml(statusLabel[e.status]||'No action')}</span></div></div>`;
+    return `<div class="pcard">
+      <div class="phead">
+        <span class="pname">${escapeHtml(p.name)}</span>
+        <span class="pmeta">${p.title?escapeHtml(p.title)+' · ':''}reviewed by ${escapeHtml(e.reviewerOfRecord)} · ${e.score!==null?e.score.toFixed(1):'—'} · ${escapeHtml(statusLabel[e.status]||'No action')}</span>
+      </div>
       ${block('In their words', e.inTheirWords, 'self')}
       ${block("Manager's assessment", e.managersAssessment, 'manager')}
       ${block('1:1 outcome', e.oneOnOneOutcome, 'manager')}
@@ -2679,20 +2682,34 @@ function buildDeptReportPrintable(dept, cycle, report, entries, teamScore, manag
     body{font-family:'Inter',-apple-system,Arial,sans-serif;color:#0B3B2E;padding:40px;max-width:800px;margin:0 auto;}
     ${PDF_HEADER_CSS}
     h1{font-family:'Clash Grotesk','Inter',sans-serif;font-size:22px;margin-bottom:2px;}
-    .meta{color:#5c7c74;font-size:13px;margin-bottom:20px;}
-    .block{margin-bottom:16px;} .block b{display:block;font-size:13px;margin-bottom:3px;color:#16755C;} .block p{margin:0;font-size:13.5px;line-height:1.5;}
+    .meta{color:#5c7c74;font-size:13px;margin-bottom:24px;padding-bottom:14px;border-bottom:2px solid #0B3B2E;}
+    .seclabel{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#5c7c74;margin:26px 0 10px;}
+    .pcard{border:1px solid #d7ddda;border-radius:10px;padding:16px 18px 6px;margin:0 0 14px;page-break-inside:avoid;background:#fff;}
+    .pcard.slim{padding:12px 18px;}
+    .phead{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;border-bottom:1px solid #e8ece9;padding-bottom:9px;margin-bottom:12px;}
+    .pcard.slim .phead{border-bottom:none;padding-bottom:0;margin-bottom:0;}
+    .pname{font-weight:700;font-size:14.5px;}
+    .pmeta{color:#5c7c74;font-size:12px;}
+    .block{margin-bottom:14px;} .block b{display:block;font-size:12.5px;margin-bottom:4px;color:#16755C;} .block p{margin:0;font-size:13px;line-height:1.55;}
+    .headcard{border:2px solid #16755C;}
   </style></head><body>
   ${pdfHeader(cycle.label || '')}
   <h1>${scoped ? escapeHtml(headName)+' · Manager Report' : escapeHtml(dept)+' · Department Report'}</h1>
   <div class="meta">${scoped ? 'Manager' : 'Department head'}: ${escapeHtml(headName)||'—'} · ${escapeHtml(cycle.label)} · Team score ${teamScore!==null?teamScore.toFixed(1):'—'} · Manager score ${managerScore!==null?managerScore.toFixed(1):'—'}</div>
-  ${headEntry ? `<div class="block" style="border-bottom:2px solid #16755C;padding-bottom:12px;margin-bottom:18px;">
-    <b style="font-size:14px;">${escapeHtml(headName)} · own record${headPerson&&headPerson.title?' · '+escapeHtml(headPerson.title):''} · ${headEntry.score!==null?headEntry.score.toFixed(1):'—'}</b>
+  ${headEntry ? `<div class="seclabel">${scoped?'Your record':'Department head'}</div>
+  <div class="pcard headcard">
+    <div class="phead">
+      <span class="pname">${escapeHtml(headName)}</span>
+      <span class="pmeta">${headPerson&&headPerson.title?escapeHtml(headPerson.title)+' · ':''}${headEntry.score!==null?headEntry.score.toFixed(1):'—'}</span>
+    </div>
     ${block('In their words', headEntry.inTheirWords, 'self')}
     ${block("Manager's assessment", headEntry.managersAssessment, 'manager')}
     ${block('1:1 outcome', headEntry.oneOnOneOutcome, 'manager')}
     ${block('HR summary & recommendation', headEntry.recommendation, 'hr')}
   </div>` : ''}
-  ${block(scoped ? 'Team summary' : 'HR Summary', report.summary, 'hr')}
+  ${report.summary ? `<div class="seclabel">${scoped ? 'Team summary' : 'HR summary'}</div>
+  <div class="pcard">${block('', report.summary, 'hr')}</div>` : ''}
+  <div class="seclabel">Team breakout</div>
   ${cardsHtml}
   </body></html>`;
 }
