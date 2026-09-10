@@ -2683,14 +2683,14 @@ function buildDeptReportPrintable(dept, cycle, report, entries, teamScore, manag
     ${PDF_HEADER_CSS}
     h1{font-family:'Clash Grotesk','Inter',sans-serif;font-size:22px;margin-bottom:2px;}
     .meta{color:#5c7c74;font-size:13px;margin-bottom:24px;padding-bottom:14px;border-bottom:2px solid #0B3B2E;}
-    .seclabel{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#5c7c74;margin:26px 0 10px;}
-    .pcard{border:1px solid #d7ddda;border-radius:10px;padding:16px 18px 6px;margin:0 0 14px;page-break-inside:avoid;background:#fff;}
-    .pcard.slim{padding:12px 18px;}
-    .phead{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;border-bottom:1px solid #e8ece9;padding-bottom:9px;margin-bottom:12px;}
+    .seclabel{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#5c7c74;margin:26px 0 10px;page-break-after:avoid;}
+    .pcard{border:1px solid #d7ddda;border-radius:10px;padding:16px 18px 6px;margin:0 0 14px;background:#fff;box-decoration-break:clone;-webkit-box-decoration-break:clone;}
+    .pcard.slim{padding:12px 18px;page-break-inside:avoid;}
+    .phead{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;border-bottom:1px solid #e8ece9;padding-bottom:9px;margin-bottom:12px;page-break-after:avoid;}
     .pcard.slim .phead{border-bottom:none;padding-bottom:0;margin-bottom:0;}
     .pname{font-weight:700;font-size:14.5px;}
     .pmeta{color:#5c7c74;font-size:12px;}
-    .block{margin-bottom:14px;} .block b{display:block;font-size:12.5px;margin-bottom:4px;color:#16755C;} .block p{margin:0;font-size:13px;line-height:1.55;}
+    .block{margin-bottom:14px;} .block b{display:block;font-size:12.5px;margin-bottom:4px;color:#16755C;page-break-after:avoid;} .block p{margin:0;font-size:13px;line-height:1.55;orphans:3;widows:3;}
     .headcard{border:2px solid #16755C;}
   </style></head><body>
   ${pdfHeader(cycle.label || '')}
