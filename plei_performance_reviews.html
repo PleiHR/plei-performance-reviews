@@ -3165,8 +3165,13 @@ function viewMyTeam(cycle, person){
   }).join('');
 
   return `
-  <div class="h1" style="font-family:var(--font-head);font-weight:600;font-size:22px;margin-bottom:2px;">${isHead?escapeHtml(headGroup):'My Team'}</div>
-  <div class="desc" style="margin-bottom:14px;">${escapeHtml(cycle.label)}</div>
+  <div class="row" style="justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
+    <div>
+      <div class="h1" style="font-family:var(--font-head);font-weight:600;font-size:22px;margin-bottom:2px;">${isHead?escapeHtml(headGroup):'My Team'}</div>
+      <div class="desc" style="margin:0;">${escapeHtml(cycle.label)}</div>
+    </div>
+    <button class="btn ghost sm" id="myTeamPdfBtn">Download PDF</button>
+  </div>
 
   <div class="grid grid-3">
     <div class="stat ${teamAvgCls}"><div class="num">${teamAvg!==null?teamAvg.toFixed(1):'—'}</div><div class="lbl">Team average</div></div>
@@ -3835,6 +3840,33 @@ function bindViewEvents(role, nav, cycle, person){
       }, {merge:true});
     }catch(e){ console.error(e); alert('Could not save status: ' + e.message); }
   }));
+  document.getElementById('myTeamPdfBtn')?.addEventListener('click', ()=>{
+    const meP = currentPerson() || sessionPerson();
+    if(!meP) return;
+    const headGroup = DEPT_SUMMARY_GROUPS.find(g=>(deptHeadFor(g)||{}).id===meP.id);
+    const isHead = !!headGroup;
+    const members = directReports(meP.id).slice().sort((a,b)=>a.name.localeCompare(b.name));
+    const entries = members.map(p=>{
+      const g = isHead ? (deptGroupFor(p.id) || headGroup) : deptGroupFor(p.id);
+      const r = g ? deptReportFor(g) : {id:null, people:{}, status:'draft'};
+      return deptReportEntryFor(p, cycle, r);
+    });
+    const isHRme = meP.role==='hr';
+    // The manager's copy only carries HR text once HR has published it to them (HR sees drafts too).
+    const printableEntries = entries.map(e=>(isHRme || e.reportPublished) ? e : Object.assign({}, e, {recommendation:''}));
+    const selfGroup = isHead ? headGroup : deptGroupFor(meP.id);
+    const selfReport = selfGroup ? deptReportFor(selfGroup) : {id:null, people:{}, status:'draft'};
+    let headEntry = deptReportEntryFor(meP, cycle, selfReport);
+    if(!isHRme && !headEntry.reportPublished) headEntry = Object.assign({}, headEntry, {recommendation:''});
+    // Team summary: the published report addressed to me (mgr doc or dept doc), else HR sees the draft for their scope.
+    const pubForMe = (DB.deptSummaries||[]).filter(s=>s.status==='published' && ((s.id==='mgr_'+meP.id) || (Array.isArray(s.recipientIds) && s.recipientIds.includes(meP.id))));
+    const summaryDoc = pubForMe.find(s=>s.id==='mgr_'+meP.id) || pubForMe[0] || (isHRme ? (isHead ? selfReport : mgrReportFor(meP.id)) : null);
+    const report = {summary: summaryDoc && summaryDoc.summary ? summaryDoc.summary : ''};
+    const managerScore = scoreFor(meP, cycle);
+    const pool = [managerScore, ...printableEntries.map(e=>e.score)].filter(v=>v!==null);
+    const teamScore = pool.length ? avg(pool) : null;
+    printHtml(buildDeptReportPrintable(isHead?headGroup:(deptGroupFor(meP.id)||'My Team'), cycle, report, printableEntries, teamScore, managerScore, meP.name, headEntry, meP, true));
+  });
   document.getElementById('dsDownloadReportBtn')?.addEventListener('click', ()=>{
     const btn = document.getElementById('dsDownloadReportBtn');
     const dept = btn.dataset.dept;
