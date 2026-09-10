@@ -2655,20 +2655,21 @@ function deptReportEmailHtml(dept, cycle, report, entries, teamScore, managerSco
   `;
 }
 
-function buildDeptReportPrintable(dept, cycle, report, entries, teamScore, managerScore, headName){
+function buildDeptReportPrintable(dept, cycle, report, entries, teamScore, managerScore, headName, headEntry, headPerson, scoped){
   const SRC_TAG = {hr:'HR', manager:'Manager', self:'Self-review'};
   const SRC_COLOR = {hr:'#16755C', manager:'#94a3a1', self:'#94a3a1'};
   const block = (label, text, source)=> text ? `<div class="block" style="border-left:3px solid ${SRC_COLOR[source]||'#e1e5e2'};padding-left:10px;"><b>${label}</b>${source?` <span style="font-size:10px;text-transform:uppercase;letter-spacing:.03em;color:${SRC_COLOR[source]};">· ${SRC_TAG[source]}</span>`:''}<p>${escapeHtml(text).replace(/\n/g,'<br>')}</p></div>` : '';
   const statusLabel = {no:'No action', monitor:'Monitor', yes:'PIP'};
   const cardsHtml = entries.map(e=>{
     const p = e.person;
-    if(!e.notable) return `<div class="block"><b>${escapeHtml(p.name)}</b><p>${e.score!==null?e.score.toFixed(1):'—'} · No action</p></div>`;
+    const hasContent = e.inTheirWords || e.managersAssessment || e.oneOnOneOutcome || e.recommendation;
+    if(!hasContent) return `<div class="block"><b>${escapeHtml(p.name)}</b><p>${e.score!==null?e.score.toFixed(1):'—'} · ${escapeHtml(statusLabel[e.status]||'No action')}</p></div>`;
     return `<div class="block" style="border-bottom:1px solid #e1e5e2;padding-bottom:12px;">
-      <b>${escapeHtml(p.name)} · reviewed by ${escapeHtml(e.reviewerOfRecord)} · ${e.score!==null?e.score.toFixed(1):'—'} · ${escapeHtml(statusLabel[e.status]||'No action')}</b>
+      <b>${escapeHtml(p.name)}${p.title?' · '+escapeHtml(p.title):''} · reviewed by ${escapeHtml(e.reviewerOfRecord)} · ${e.score!==null?e.score.toFixed(1):'—'} · ${escapeHtml(statusLabel[e.status]||'No action')}</b>
       ${block('In their words', e.inTheirWords, 'self')}
       ${block("Manager's assessment", e.managersAssessment, 'manager')}
       ${block('1:1 outcome', e.oneOnOneOutcome, 'manager')}
-      ${block('Recommendation', e.recommendation, 'hr')}
+      ${block('HR summary & recommendation', e.recommendation, 'hr')}
     </div>`;
   }).join('');
   return `<html><head><meta charset="UTF-8"><title>Department Report · ${escapeHtml(dept)}</title>
@@ -2682,9 +2683,16 @@ function buildDeptReportPrintable(dept, cycle, report, entries, teamScore, manag
     .block{margin-bottom:16px;} .block b{display:block;font-size:13px;margin-bottom:3px;color:#16755C;} .block p{margin:0;font-size:13.5px;line-height:1.5;}
   </style></head><body>
   ${pdfHeader(cycle.label || '')}
-  <h1>${escapeHtml(dept)} · Department Report</h1>
-  <div class="meta">Department head: ${escapeHtml(headName)||'—'} · ${escapeHtml(cycle.label)} · Team score ${teamScore!==null?teamScore.toFixed(1):'—'} · Manager score ${managerScore!==null?managerScore.toFixed(1):'—'}</div>
-  ${block('HR Summary', report.summary, 'hr')}
+  <h1>${scoped ? escapeHtml(headName)+' · Manager Report' : escapeHtml(dept)+' · Department Report'}</h1>
+  <div class="meta">${scoped ? 'Manager' : 'Department head'}: ${escapeHtml(headName)||'—'} · ${escapeHtml(cycle.label)} · Team score ${teamScore!==null?teamScore.toFixed(1):'—'} · Manager score ${managerScore!==null?managerScore.toFixed(1):'—'}</div>
+  ${headEntry ? `<div class="block" style="border-bottom:2px solid #16755C;padding-bottom:12px;margin-bottom:18px;">
+    <b style="font-size:14px;">${escapeHtml(headName)} · own record${headPerson&&headPerson.title?' · '+escapeHtml(headPerson.title):''} · ${headEntry.score!==null?headEntry.score.toFixed(1):'—'}</b>
+    ${block('In their words', headEntry.inTheirWords, 'self')}
+    ${block("Manager's assessment", headEntry.managersAssessment, 'manager')}
+    ${block('1:1 outcome', headEntry.oneOnOneOutcome, 'manager')}
+    ${block('HR summary & recommendation', headEntry.recommendation, 'hr')}
+  </div>` : ''}
+  ${block(scoped ? 'Team summary' : 'HR Summary', report.summary, 'hr')}
   ${cardsHtml}
   </body></html>`;
 }
@@ -2753,7 +2761,7 @@ function viewDeptReport(dept, cycle, person, isAdmin){
       </div>
       <div class="row" style="gap:10px;">
         <span class="stpill ${published?'ok':'warn'}">${published?'Published':'Draft'}</span>
-        ${isAdmin?`<button class="btn ghost sm" id="dsDownloadReportBtn" data-dept="${escapeHtml(dept)}">Download PDF</button>`:''}
+        ${(isAdmin || published)?`<button class="btn ghost sm" id="dsDownloadReportBtn" data-dept="${escapeHtml(dept)}" data-mgr="${scoped?escapeHtml(head.id):''}">Download PDF</button>`:''}
         ${isAdmin?`<button class="btn" id="dsPublishBtn" data-dept="${escapeHtml(dept)}" data-mgr="${scoped?escapeHtml(head.id):''}">Publish to manager</button>`:''}
       </div>
     </div>
@@ -3828,15 +3836,20 @@ function bindViewEvents(role, nav, cycle, person){
     }catch(e){ console.error(e); alert('Could not save status: ' + e.message); }
   }));
   document.getElementById('dsDownloadReportBtn')?.addEventListener('click', ()=>{
-    const dept = document.getElementById('dsDownloadReportBtn').dataset.dept;
-    const report = deptReportFor(dept);
-    const entries = deptReportEntries(dept, cycle, report);
-    const head = deptHeadFor(dept);
-    const headMgrRev = head ? findReview('manager', cycle.id, x=>x.employeeId===head.id && x.status==='submitted') : null;
-    const managerScore = headMgrRev ? ratingAvgOfReview(headMgrRev) : null;
+    const btn = document.getElementById('dsDownloadReportBtn');
+    const dept = btn.dataset.dept;
+    const scopedMgrId = btn.dataset.mgr || '';
+    const deptHead = deptHeadFor(dept);
+    const head = scopedMgrId ? getPerson(scopedMgrId) : deptHead;
+    const report = scopedMgrId ? ((deptHead && scopedMgrId===deptHead.id) ? deptReportFor(dept) : mgrReportFor(scopedMgrId)) : deptReportFor(dept);
+    let entries = deptReportEntries(dept, cycle, deptReportFor(dept));
+    if(scopedMgrId){ entries = entries.filter(e=>e.person && e.person.managerId===scopedMgrId); }
+    // The combined document: the manager's own record on top, then the summary, then every direct's full breakout.
+    const headEntry = head ? deptReportEntryFor(head, cycle, report) : null;
+    const managerScore = head ? scoreFor(head, cycle) : null;
     const scored = entries.filter(e=>e.score!==null);
     const teamScore = scored.length ? avg(scored.map(e=>e.score)) : null;
-    printHtml(buildDeptReportPrintable(dept, cycle, report, entries, teamScore, managerScore, head?head.name:'—'));
+    printHtml(buildDeptReportPrintable(dept, cycle, report, entries, teamScore, managerScore, head?head.name:'—', headEntry, head, !!scopedMgrId));
   });
   document.getElementById('dsPublishBtn')?.addEventListener('click', ()=>{
     const btn = document.getElementById('dsPublishBtn');
