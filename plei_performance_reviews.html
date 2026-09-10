@@ -557,6 +557,16 @@ function startReviewListeners(email, isHR){
     // subtree via managerChain) rather than the managerEmail snapshot stored on each review, so a
     // review stays visible to whoever manages that person today, even across manager reassignments
     // and past cycles, not just the person who originally wrote it.
+    // managerEmail-scoped listeners: this is the predicate Firestore security rules can verify for
+    // non-HR queries (same pattern as oneonones/followUps), so these are the reads that actually
+    // return data on a manager's real session.
+    const selfMgrSlot = selfTeamChunks.length; selfTeamChunks.push([]);
+    reviewListenerUnsubs.push(fdb.collection('reviews_self').where('managerEmail','==',email).onSnapshot(snap=>{ selfTeamChunks[selfMgrSlot] = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); recomputeSelfTeam(); }, e=>console.error(e)));
+    const mgrMgrSlot = mgrTeamChunks.length; mgrTeamChunks.push([]);
+    reviewListenerUnsubs.push(fdb.collection('reviews_manager').where('managerEmail','==',email).onSnapshot(snap=>{ mgrTeamChunks[mgrMgrSlot] = snap.docs.map(d=>Object.assign({id:d.id}, d.data())); recomputeMgrTeam(); }, e=>console.error(e)));
+    // employeeId-in reads cover reassigned reviews (review written by someone else about my current
+    // report). Rules currently reject these for non-HR sessions; they start working the moment the
+    // Firestore rules allow team-scoped reads, and are harmless (fail silently) until then.
     const myTeamIds = Array.from(new Set(DB.people.filter(p=>p.id!==myId).map(p=>p.id)));
     for(let i=0;i<myTeamIds.length;i+=30){
       const chunk = myTeamIds.slice(i,i+30);
@@ -2689,10 +2699,17 @@ function viewDeptReport(dept, cycle, person, isAdmin){
   // Sub-managers inside this department who have their own people: each gets their own report.
   const subMgrIds = Array.from(new Set(allEntries.map(e=>e.person&&e.person.managerId).filter(Boolean))).filter(id=>!deptHead||id!==deptHead.id);
   const subMgrs = subMgrIds.map(id=>getPerson(id)).filter(Boolean).sort((a,b)=>(managerChainOf(a.id).length-managerChainOf(b.id).length)||a.name.localeCompare(b.name));
-  const selMgrId = isAdmin && STATE.deptSummaryMgrId && subMgrIds.includes(STATE.deptSummaryMgrId) ? STATE.deptSummaryMgrId : null;
+  // Admin picks the scope from the tabs. A manager viewing their published report always
+  // gets their OWN scope: the department head sees the department doc, any sub-manager sees
+  // only their direct reports, never the layers below their sub-managers.
+  // Every non-admin manager, the department head included, sees their DIRECT reports only.
+  // Anything flagged below their directs appears in the read-only glance, never as records.
+  const selMgrId = isAdmin
+    ? (STATE.deptSummaryMgrId && subMgrIds.includes(STATE.deptSummaryMgrId) ? STATE.deptSummaryMgrId : null)
+    : (person ? person.id : null);
   const scoped = !!selMgrId;
   const head = scoped ? getPerson(selMgrId) : deptHead;
-  const report = scoped ? mgrReportFor(selMgrId) : deptDoc;
+  const report = scoped ? ((deptHead && selMgrId===deptHead.id) ? deptDoc : mgrReportFor(selMgrId)) : deptDoc;
   // A manager's report covers their DIRECT reports only. People below their sub-managers
   // belong in those sub-managers' own reports, never surfaced up a level.
   const entries = scoped
@@ -2764,6 +2781,14 @@ function viewDeptReport(dept, cycle, person, isAdmin){
     ${head ? dashboardPersonRowHtml(dashboardEntryFor(head.id, cycle), cycle, isAdmin) : '<div class="empty" style="padding:16px;">No department head detected for this department.</div>'}
   </div>
 
+  ${!isAdmin && scoped ? (function(){
+    const below = allEntries.filter(e=>e.person && e.person.managerId!==selMgrId && e.person.id!==selMgrId && (e.status==='monitor'||e.status==='yes') && managerChainOf(e.person.id).includes(selMgrId));
+    if(!below.length) return '';
+    return `<div class="card"><h3 class="section-h">Below your team</h3>
+      <div class="desc">Flags in your wider org, at a glance. The full records and plans live with each person's direct manager.</div>
+      ${below.map(e=>`<div class="prow" style="cursor:default;"><div class="who"><b>${escapeHtml(e.person.name)}</b><span>${escapeHtml(e.person.title||'')} · manager: ${escapeHtml((getPerson(e.person.managerId)||{}).name||'—')}</span></div><span class="sevtag ${e.status==='yes'?'pip':'mon'}">${e.status==='yes'?'PIP':'MONITOR'}</span></div>`).join('')}
+    </div>`;
+  })() : ''}
   <div class="panel">
     <h3 class="ph">PEOPLE<span class="hint">grouped by manager · click a team to collapse · click a person for their record</span></h3>
     ${entries.length===0 ? '<div class="empty" style="padding:16px;">No one to report on in this department.</div>' : (function(){
